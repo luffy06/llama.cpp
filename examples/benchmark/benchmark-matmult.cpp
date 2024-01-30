@@ -28,7 +28,7 @@ static void ggml_graph_compute_helper(std::vector<uint8_t> & buf, ggml_cgraph * 
         plan.work_data = buf.data();
     }
 
-    ggml_graph_compute(graph, &plan);
+    ggml_graph_compute(graph, &plan, 0, NULL);
 }
 
 static float tensor_sum_elements(const ggml_tensor * tensor) {

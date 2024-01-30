@@ -729,7 +729,7 @@ static void ggml_graph_compute_helper(std::vector<uint8_t> & buf, ggml_cgraph * 
         plan.work_data = buf.data();
     }
 
-    ggml_graph_compute(graph, &plan);
+    ggml_graph_compute(graph, &plan, 0, NULL);
 }
 
 //
@@ -4500,49 +4500,6 @@ struct llm_build_context {
 
         ggml_build_forward_expand(gf, cur);
 
-        LLAMA_LOG_INFO("{\n\t%s: Start to print tensors in the computation graph\n", __func__);
-        for (int i = 0; i < gf->n_nodes; ++ i) {
-            ggml_tensor * t = gf->nodes[i];
-            LLAMA_LOG_INFO("\t%s: Tensor name [%s]\n", __func__, t->name);
-            LLAMA_LOG_INFO("\t%s: \tOP [%s]\n", __func__, ggml_op_string(t->op));
-            LLAMA_LOG_INFO("\t%s: \tBackend [%s]\n", __func__, ggml_backend_type_string(t->backend));
-            LLAMA_LOG_INFO("\t%s: \tShape (", __func__);
-            for (int j = 0; j < GGML_MAX_DIMS; ++ j) {
-                LLAMA_LOG_INFO("%ld", t->ne[GGML_MAX_DIMS - 1 - j]);
-                if (j != GGML_MAX_DIMS - 1) {
-                    LLAMA_LOG_INFO(", ");
-                } else {
-                    LLAMA_LOG_INFO(")\n");
-                }
-            }
-            LLAMA_LOG_INFO("\t%s: \tSource tensor [", __func__);
-            switch (t->op) {
-                case GGML_OP_VIEW:
-                case GGML_OP_RMS_NORM:
-                case GGML_OP_RESHAPE:
-                case GGML_OP_CPY:
-                case GGML_OP_TRANSPOSE:
-                case GGML_OP_PERMUTE:
-                case GGML_OP_CONT:
-                case GGML_OP_UNARY:
-                    LLAMA_LOG_INFO("%s", t->src[0]->name);
-                    break;
-                case GGML_OP_ROPE:
-                case GGML_OP_GET_ROWS:
-                case GGML_OP_MUL:
-                case GGML_OP_MUL_MAT:
-                case GGML_OP_SOFT_MAX:
-                case GGML_OP_ADD:
-                    LLAMA_LOG_INFO("%s, %s", t->src[0]->name, t->src[1]->name);
-                    break;
-                default:
-                    LLAMA_LOG_INFO("Unknown OP [%s]\n", ggml_op_string(t->op));
-                    exit(-1);
-            }
-            LLAMA_LOG_INFO("]\n");
-        }
-        LLAMA_LOG_INFO("\t%s: Finish printing tensors in the computation graph\n}\n", __func__);
-
         return gf;
     }
 
@@ -6480,7 +6437,7 @@ static int llama_decode_internal(
     res->backend = GGML_BACKEND_CPU;
 #endif
 
-    LLAMA_LOG_INFO("%s: graph build time: %.3f ms (%d nodes, %d leafs)\n", __func__, (ggml_time_us() - t_start_us)/1000.0, gf->n_nodes, gf->n_leafs);
+    // LLAMA_LOG_INFO("%s: graph build time: %.3f ms (%d nodes, %d leafs)\n", __func__, (ggml_time_us() - t_start_us)/1000.0, gf->n_nodes, gf->n_leafs);
 
     // for big prompts, if BLAS is enabled, it is better to use only one thread
     // otherwise, the threads are spin-lock waiting for the BLAS calls and are degrading the performance
@@ -6510,7 +6467,50 @@ static int llama_decode_internal(
     if (ggml_backend_is_cpu(lctx.backend)) {
         ggml_backend_cpu_set_n_threads(lctx.backend, n_threads);
     }
-    ggml_backend_graph_compute(lctx.backend, gf);
+
+    const size_t num_layers = lctx.model.layers.size();
+    std::vector<struct ggml_tensor*> weights;
+    weights.reserve(num_layers);
+    for (auto layer : lctx.model.layers) {
+        weights.push_back(layer.attn_norm);
+        weights.push_back(layer.attn_norm_b);
+        weights.push_back(layer.attn_norm_2);
+        weights.push_back(layer.attn_norm_2_b);
+        weights.push_back(layer.attn_q_norm);
+        weights.push_back(layer.attn_q_norm_b);
+        weights.push_back(layer.attn_k_norm);
+        weights.push_back(layer.attn_k_norm_b);
+
+        // attention
+        weights.push_back(layer.wq);
+        weights.push_back(layer.wk);
+        weights.push_back(layer.wv);
+        weights.push_back(layer.wo);
+        weights.push_back(layer.wqkv);
+
+        // attention bias
+        weights.push_back(layer.bq);
+        weights.push_back(layer.bk);
+        weights.push_back(layer.bv);
+        weights.push_back(layer.bo);
+        weights.push_back(layer.bqkv);
+
+        // normalization
+        weights.push_back(layer.ffn_norm);
+        weights.push_back(layer.ffn_norm_b);
+
+        // ff
+        weights.push_back(layer.ffn_gate);
+        weights.push_back(layer.ffn_down);
+        weights.push_back(layer.ffn_up);
+
+        // ff bias
+        weights.push_back(layer.ffn_down_b);
+        weights.push_back(layer.ffn_up_b);
+        weights.push_back(layer.ffn_act);
+    }
+
+    ggml_backend_graph_compute(lctx.backend, gf, num_layers, weights.data());
 
 #ifdef GGML_USE_MPI
     ggml_mpi_graph_compute_post(lctx.ctx_mpi, gf, n_layer);
@@ -10074,7 +10074,7 @@ static void llama_copy_state_data_internal(struct llama_context * ctx, llama_dat
 
             ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(cpy_ctx, ctx->backend);
 
-            ggml_backend_graph_compute(ctx->backend, gf);
+            ggml_backend_graph_compute(ctx->backend, gf, 0, NULL);
 
             std::vector<uint8_t> tmp_buf;
             for (int il = 0; il < (int) n_layer; ++il) {
@@ -10224,7 +10224,7 @@ size_t llama_set_state_data(struct llama_context * ctx, uint8_t * src) {
                 inp += ggml_nbytes(vin2d[il]);
             }
 
-            ggml_backend_graph_compute(ctx->backend, gf);
+            ggml_backend_graph_compute(ctx->backend, gf, 0, NULL);
 
             ggml_free(cpy_ctx);
 

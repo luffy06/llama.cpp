@@ -1102,13 +1102,11 @@ void llama_batch_add(
 std::tuple<struct llama_model *, struct llama_context *> llama_init_from_gpt_params(gpt_params & params) {
     auto mparams = llama_model_params_from_gpt_params(params);
 
-    fprintf(stderr, "%s: start to load model from file\n", __func__);
     llama_model * model  = llama_load_model_from_file(params.model.c_str(), mparams);
     if (model == NULL) {
         fprintf(stderr, "%s: error: failed to load model '%s'\n", __func__, params.model.c_str());
         return std::make_tuple(nullptr, nullptr);
     }
-    fprintf(stderr, "%s: finish loading model from file\n", __func__);
 
     auto cparams = llama_context_params_from_gpt_params(params);
 
@@ -1144,9 +1142,8 @@ std::tuple<struct llama_model *, struct llama_context *> llama_init_from_gpt_par
     {
         LOG("warming up the model with an empty run\n");
 
-        fprintf(stderr, "%s: warming up\n", __func__);
         std::vector<llama_token> tmp = { llama_token_bos(model), llama_token_eos(model), };
-        // llama_decode(lctx, llama_batch_get_one(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch), 0, 0));
+        llama_decode(lctx, llama_batch_get_one(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch), 0, 0));
         llama_kv_cache_clear(lctx);
         llama_reset_timings(lctx);
     }

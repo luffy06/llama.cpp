@@ -362,7 +362,7 @@ static bool apply_lora(struct ggml_tensor * tensor, struct lora_data * lora, int
     data_work.resize(cplan.work_size);
     cplan.work_data = data_work.data();
 
-    ggml_graph_compute(gf, &cplan);
+    ggml_graph_compute(gf, &cplan, 0, NULL);
 
     ggml_free(ctx);
     return true;

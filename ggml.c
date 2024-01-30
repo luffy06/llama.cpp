@@ -14438,8 +14438,6 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
         return;
     }
 
-    const int64_t start_us = ggml_time_us();
-
 #ifdef GGML_USE_CUBLAS
     bool skip_cpu = ggml_cuda_compute_forward(params, tensor);
     if (skip_cpu) {
@@ -14769,8 +14767,6 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
                 GGML_ASSERT(false);
             } break;
     }
-
-    printf("\t%s: Tensor [%s], OP [%s], Time [%.3f] ms\n", __func__, ggml_op_string(tensor->op), tensor->name, (ggml_time_us() - start_us) / 1000.0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -16238,6 +16234,8 @@ struct ggml_compute_state {
     ggml_thread_t thrd;
     int ith;
     struct ggml_compute_state_shared * shared;
+    size_t num_layers;
+    struct ggml_tensor ** weights;
 };
 
 static void ggml_graph_compute_perf_stats_node(struct ggml_tensor * node, const struct ggml_compute_state_shared * st) {
@@ -16494,6 +16492,10 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
 
 static thread_ret_t ggml_graph_compute_thread(void * data) {
     struct ggml_compute_state * state = (struct ggml_compute_state *) data;
+    const size_t num_layers = state->num_layers;
+    const struct ggml_tensor ** weights = state->weights;
+    UNUSED(num_layers);
+    UNUSED(weights);
 
     const struct ggml_cgraph * cgraph = state->shared->cgraph;
     const struct ggml_cplan  * cplan  = state->shared->cplan;
@@ -16795,7 +16797,7 @@ struct ggml_cplan ggml_graph_plan(struct ggml_cgraph * cgraph, int n_threads) {
     return cplan;
 }
 
-int ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan) {
+int ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan, size_t num_layers, struct ggml_tensor** weights) {
     {
         GGML_ASSERT(cplan);
         GGML_ASSERT(cplan->n_threads > 0);
@@ -16827,6 +16829,8 @@ int ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan) {
                 .thrd   = 0,
                 .ith = j,
                 .shared = &state_shared,
+                .num_layers = num_layers,
+                .weights = weights,
             };
 
             const int rc = ggml_thread_create(&workers[j].thrd, NULL, ggml_graph_compute_thread, &workers[j]);
@@ -16837,6 +16841,8 @@ int ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan) {
 
     workers[0].ith = 0;
     workers[0].shared = &state_shared;
+    workers[0].num_layers = num_layers;
+    workers[0].weights = weights;
 
     const int64_t perf_start_cycles  = ggml_perf_cycles();
     const int64_t perf_start_time_us = ggml_perf_time_us();
@@ -16882,7 +16888,7 @@ void ggml_graph_compute_with_ctx(struct ggml_context * ctx, struct ggml_cgraph *
 
     cplan.work_data = (uint8_t *)ctx->mem_buffer + obj->offs;
 
-    ggml_graph_compute(cgraph, &cplan);
+    ggml_graph_compute(cgraph, &cplan, 0, NULL);
 }
 
 struct ggml_tensor * ggml_graph_get_tensor(struct ggml_cgraph * cgraph, const char * name) {
@@ -17703,7 +17709,7 @@ static enum ggml_opt_result ggml_opt_adam(
         }
         // ggml_graph_reset  (gf);
         ggml_set_f32      (f->grad, 1.0f);
-        ggml_graph_compute(gb, &cplan);
+        ggml_graph_compute(gb, &cplan, 0, NULL);
         ggml_opt_acc_grad(np, ps, g, accum_norm);
         fx += ggml_get_f32_1d(f, 0);
     }
@@ -17794,7 +17800,7 @@ static enum ggml_opt_result ggml_opt_adam(
             }
             // ggml_graph_reset  (gf);
             ggml_set_f32      (f->grad, 1.0f);
-            ggml_graph_compute(gb, &cplan);
+            ggml_graph_compute(gb, &cplan, 0, NULL);
             ggml_opt_acc_grad(np, ps, g, accum_norm);
             fx += ggml_get_f32_1d(f, 0);
         }
@@ -17936,7 +17942,7 @@ static enum ggml_opt_result linesearch_backtracking(
                 }
                 // ggml_graph_reset  (gf);
                 ggml_set_f32      (f->grad, 1.0f);
-                ggml_graph_compute(gb, cplan);
+                ggml_graph_compute(gb, cplan, 0, NULL);
                 ggml_opt_acc_grad(np, ps, g, accum_norm);
                 *fx += ggml_get_f32_1d(f, 0);
             }
@@ -18077,7 +18083,7 @@ static enum ggml_opt_result ggml_opt_lbfgs(
             }
             // ggml_graph_reset  (gf);
             ggml_set_f32      (f->grad, 1.0f);
-            ggml_graph_compute(gb, &cplan);
+            ggml_graph_compute(gb, &cplan, 0, NULL);
             ggml_opt_acc_grad(np, ps, g, accum_norm);
             fx += ggml_get_f32_1d(f, 0);
         }

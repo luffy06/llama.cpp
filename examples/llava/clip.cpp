@@ -863,7 +863,7 @@ bool clip_image_batch_encode(const clip_ctx * ctx, const int n_threads, const cl
         plan.work_data = (uint8_t *)malloc(plan.work_size);
     }
 
-    ggml_graph_compute(gf, &plan);
+    ggml_graph_compute(gf, &plan, 0, NULL);
 
     // the last node is the embedding tensor
 struct ggml_tensor * embeddings = gf->nodes[gf->n_nodes - 1];

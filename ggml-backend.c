@@ -195,10 +195,8 @@ void ggml_backend_graph_plan_compute(ggml_backend_t backend, ggml_backend_graph_
     ggml_backend_synchronize(backend);
 }
 
-void ggml_backend_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
-    printf("%s: compute graph in the backend\n{\n", __func__);
-    backend->iface.graph_compute(backend, cgraph);
-    printf("}\n%s: finish computing graph in the backend\n", __func__);
+void ggml_backend_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph, size_t num_layers, struct ggml_tensor** weights) {
+    backend->iface.graph_compute(backend, cgraph, num_layers, weights);
 
     // printf("%s: synchronize results\n", __func__);
     // const int64_t start_us = ggml_time_us();
@@ -597,12 +595,12 @@ static void ggml_backend_cpu_graph_plan_free(ggml_backend_t backend, ggml_backen
 static void ggml_backend_cpu_graph_plan_compute(ggml_backend_t backend, ggml_backend_graph_plan_t plan) {
     struct ggml_backend_plan_cpu * cpu_plan = (struct ggml_backend_plan_cpu *)plan;
 
-    ggml_graph_compute(&cpu_plan->cgraph, &cpu_plan->cplan);
+    ggml_graph_compute(&cpu_plan->cgraph, &cpu_plan->cplan, 0, NULL);
 
     GGML_UNUSED(backend);
 }
 
-static void ggml_backend_cpu_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
+static void ggml_backend_cpu_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph, size_t num_layers, struct ggml_tensor** weights) {
     struct ggml_backend_cpu_context * cpu_ctx = (struct ggml_backend_cpu_context *)backend->context;
 
     struct ggml_cplan cplan = ggml_graph_plan(cgraph, cpu_ctx->n_threads);
@@ -615,7 +613,7 @@ static void ggml_backend_cpu_graph_compute(ggml_backend_t backend, struct ggml_c
 
     cplan.work_data = cpu_ctx->work_data;
 
-    ggml_graph_compute(cgraph, &cplan);
+    ggml_graph_compute(cgraph, &cplan, num_layers, weights);
 }
 
 static bool ggml_backend_cpu_supports_op(ggml_backend_t backend, const struct ggml_tensor * op) {
@@ -1144,7 +1142,7 @@ static void sched_compute_splits(ggml_backend_sched_t sched) {
 #endif
 
         uint64_t compute_start_us = ggml_time_us();
-        ggml_backend_graph_compute(split_backend, &split->graph);
+        ggml_backend_graph_compute(split_backend, &split->graph, 0, NULL);
         // ggml_backend_synchronize(split_backend);
         uint64_t compute_end_us = ggml_time_us();
         compute_us[split_backend_id] += compute_end_us - compute_start_us;
@@ -1411,8 +1409,8 @@ void ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t 
         struct ggml_cgraph g1v = ggml_graph_view(g1, i, i + 1);
         struct ggml_cgraph g2v = ggml_graph_view(g2, i, i + 1);
 
-        ggml_backend_graph_compute(backend1, &g1v);
-        ggml_backend_graph_compute(backend2, &g2v);
+        ggml_backend_graph_compute(backend1, &g1v, 0, NULL);
+        ggml_backend_graph_compute(backend2, &g2v, 0, NULL);
 
         if (ggml_is_view_op(t1->op)) {
             continue;
