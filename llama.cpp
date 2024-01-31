@@ -78,6 +78,7 @@
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
+#define PREFETCH
 
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
@@ -3717,7 +3718,15 @@ static bool llm_load_tensors(
 
     ml.done_getting_tensors();
 
+#ifdef PREFETCH
+    //int64_t time_prefetch = ggml_time_us();
+    ml.init_mapping(0);
+    //time_prefetch = ggml_time_us() - time_prefetch;
+    //printf("prefetch time: %f\n", time_prefetch / 1000000.0);
+    //exit(0);
+#else
     ml.init_mapping();
+#endif
 
     // allocate tensors
     size_t vram_weights = 0;
