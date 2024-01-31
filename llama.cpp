@@ -78,7 +78,6 @@
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
-#define PREFETCH
 
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
@@ -2447,6 +2446,19 @@ struct llama_model_loader {
                 if (use_mmap && mapping) {
                     if (buf_mmap) {
                         ggml_backend_tensor_alloc(buf_mmap, cur, (uint8_t *) mapping->addr + offs);
+#ifdef PREFETCH
+                        assert(PREFETCH_WINDOW < 10);
+                        const char* name = ggml_get_name(cur);
+                        int layer_index = name[4] - '0';
+                        layer_index = name[5] == '.' ? layer_index : layer_index * 10 + name[5] - '0';
+                        if (i == 0 || layer_index < PREFETCH_WINDOW) {
+                            //printf("PREFETCH: %s %p\n", ggml_get_name(cur), (uint8_t *) mapping->addr + offs); 
+                            volatile uint8_t tmp_sum = 0;  
+                            size_t size = ggml_nbytes(cur);                  
+                            for (size_t k = 0; k < size; k += BLOCK_SIZE)
+                                tmp_sum += ((uint8_t *)(mapping->addr + offs))[k];
+                        }
+#endif
                         if (lmlock) {
                             lmlock->grow_to(offs + ggml_nbytes(cur));
                         }
@@ -3827,7 +3839,6 @@ static bool llm_load_tensors(
     if (!ml.load_all_data(ctx, progress_callback, progress_callback_user_data, buf_mmap, use_mlock ? &model.mlock_mmap : NULL)) {
         return false;
     }
-
     model.mapping = std::move(ml.mapping);
 
     // loading time will be recalculate after the first eval, so

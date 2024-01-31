@@ -173,6 +173,14 @@
 //
 //
 
+#define PREFETCH
+#ifdef PREFETCH
+#define PREFETCH_WINDOW 4
+#define PREFETCH_OFFSET 4
+#define BLOCK_SIZE 4096
+#endif
+
+
 #ifdef GGML_SHARED
 #    if defined(_WIN32) && !defined(__MINGW32__)
 #        ifdef GGML_BUILD

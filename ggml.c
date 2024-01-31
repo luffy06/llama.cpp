@@ -28,16 +28,12 @@
 #include <unistd.h>
 #endif
 
-#define PREFETCH
 #ifdef PREFETCH
 #include <sys/mman.h>
 #include <sys/time.h>
 uint16_t prefetch_status = 0;
-#define PREFETCH_WINDOW 4
-#define PREFETCH_OFFSET 4
 #define THREAD_NUM 4
 #define TENSOR_PER_LAYER 26
-#define BLOCK_SIZE 4096
 #endif
 
 #define RECLAM
@@ -16583,13 +16579,14 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                     break;
                 }
 
-#ifdef RECLAM
+#ifdef PREFETCH
                 uint16_t cur_layer = num_layers * node_n / cgraph->n_nodes;
-                //Start drop layer when have LATER_KEEPED layers in memory
+                //Start drop layer when have LAYER_KEEPED layers in memory
                 if (cur_layer > prefetch_status && cur_layer >= LAYER_KEEPED) {
                     uint16_t layer_index = cur_layer - LAYER_KEEPED;
                     //printf("tid = %d node[%d] = %s %d %d %d\n", gettid(), node_n, node->name, layer_index, prefetch_status, cur_layer);
                     atomic_store(&prefetch_status, cur_layer);
+#ifdef RECLAM
                     for (int i = 0; i < TENSOR_PER_LAYER; i++) {
                         struct ggml_tensor * w = weights[layer_index * TENSOR_PER_LAYER + i];
                         if (w != NULL && w->data != NULL) {
@@ -16599,6 +16596,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                             //madvise(w->data, ggml_nbytes(w), MADV_PAGEOUT);
                         }
                     }
+#endif
                 }
 #endif
                 if (cplan->abort_callback && cplan->abort_callback(cplan->abort_callback_data)) {
@@ -16858,9 +16856,8 @@ void touch_weights(int thread_index, size_t num_layers, struct ggml_tensor** wei
     int64_t sum_size = 0;
     volatile uint8_t tmp_sum = 0;
     int layer_index = atomic_load(&prefetch_status);
-    while (layer_index < num_layers - PREFETCH_OFFSET) {
-        int index = (layer_index + PREFETCH_OFFSET)/THREAD_NUM*THREAD_NUM + thread_index;
-        if (index >= num_layers) break;
+    while (layer_index < num_layers) {
+        int index = ((layer_index + PREFETCH_OFFSET)/THREAD_NUM*THREAD_NUM + thread_index) % num_layers;
         touch_weights_layer(weights + index * TENSOR_PER_LAYER);
         int next_index = atomic_load(&prefetch_status);
         layer_index = next_index <= layer_index ? layer_index + THREAD_NUM : next_index;
@@ -16906,8 +16903,8 @@ int ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan, s
     // calculate the time 
     //struct timeval start, end;
     //gettimeofday(&start, NULL);     
-    for (int i = 0; i < PREFETCH_WINDOW; i++) 
-        touch_weights_layer(weights + i * TENSOR_PER_LAYER);
+    //for (int i = 0; i < PREFETCH_WINDOW; i++) 
+    //    touch_weights_layer(weights + i * TENSOR_PER_LAYER);
     struct touch_weights_args args[THREAD_NUM];
     for (int i = 0; i < THREAD_NUM; i++) {
         args[i].index = i;
