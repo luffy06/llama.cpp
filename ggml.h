@@ -175,11 +175,22 @@
 
 #define PREFETCH
 #ifdef PREFETCH
-#define PREFETCH_WINDOW 4
-#define PREFETCH_OFFSET 4
 #define BLOCK_SIZE 4096
+#define THREAD_NUM 4
+#define PREFETCH_OFFSET 2
+#define PREFETCH_WINDOW (THREAD_NUM * PREFETCH_OFFSET)
+#define atomic_load_prefetch(ptr) __sync_fetch_and_add(ptr, 0)
+#define atomic_store_prefetch(ptr, val) __sync_lock_test_and_set(ptr, val)
+#define atomic_increase_prefetch(ptr) __sync_fetch_and_add(ptr, 1)
 #endif
 
+#define MLOCK
+#ifdef MLOCK
+#define LOCK_SIZE 1.75
+#define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
+#endif
+
+//#define DEBUG
 
 #ifdef GGML_SHARED
 #    if defined(_WIN32) && !defined(__MINGW32__)
@@ -783,6 +794,11 @@ extern "C" {
     GGML_ATTRIBUTE_FORMAT(2, 3)
     GGML_API struct ggml_tensor * ggml_format_name(      struct ggml_tensor * tensor, const char * fmt, ...);
 
+#ifdef PREFETCH
+    GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor);
+    GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor, bool use_mmap);
+    GGML_API void       ggml_mlock_tensor    (      struct ggml_tensor * tensor, bool use_mmap);
+#endif
     //
     // operations on tensors with backpropagation
     //
