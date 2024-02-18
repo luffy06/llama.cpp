@@ -11241,6 +11241,11 @@ static void ggml_compute_forward_soft_max_f32(
     const int nc = src0->ne[0];
     const int nr = ggml_nrows(src0);
 
+    #if defined(GGML_USE_CLBLAST)
+        ggml_cl_softmax(params,src0,src1,dst);
+        return;
+    #endif
+
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
 
@@ -11311,10 +11316,7 @@ static void ggml_compute_forward_soft_max(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_cl_softmax(params,src0,src1,dst);
-                    return;
-                #endif
+                
                 ggml_compute_forward_soft_max_f32(params, src0, src1, dst);
             } break;
         default:

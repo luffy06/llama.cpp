@@ -410,14 +410,16 @@ inline static ggml_int8x16x4_t ggml_vld1q_s8_x4(const int8_t * ptr) {
 
 #if !defined(__ARM_FEATURE_DOTPROD)
 
-inline static int32x4_t vdotq_s32(int32x4_t acc, int8x16_t a, int8x16_t b) {
-    const int16x8_t p0 = vmull_s8(vget_low_s8 (a), vget_low_s8 (b));
-    const int16x8_t p1 = vmull_s8(vget_high_s8(a), vget_high_s8(b));
+// inline static int32x4_t vdotq_s32(int32x4_t acc, int8x16_t a, int8x16_t b) {
+//     const int16x8_t p0 = vmull_s8(vget_low_s8 (a), vget_low_s8 (b));
+//     const int16x8_t p1 = vmull_s8(vget_high_s8(a), vget_high_s8(b));
 
-    return vaddq_s32(acc, vaddq_s32(vpaddlq_s16(p0), vpaddlq_s16(p1)));
-}
+//     return vaddq_s32(acc, vaddq_s32(vpaddlq_s16(p0), vpaddlq_s16(p1)));
+// }
 
 #endif
+
+// #include "arm_neon.h"
 
 #endif
 

@@ -1,6 +1,8 @@
 #include "ggml.h"
 #include "ggml-opencl.h"
 
+#include <iostream>
+
 #include <array>
 #include <atomic>
 #include <cstdio>
@@ -335,7 +337,7 @@ __kernel void dequantize_mul_mat_vec_q2_K(__global const struct block_q2_K * xx,
 
     const int row = get_group_id(0);
 
-    const int num_blocks_per_row = ncols / QK_K;
+    const int num_blocks_per_row = ncols / QK_K; // 把行宽
     const int ib0 = row*num_blocks_per_row + get_global_offset(0);
 
     __global const struct block_q2_K * x = xx + ib0;
@@ -713,6 +715,120 @@ __kernel void dequantize_mul_mat_vec_q6_K(__global const struct block_q6_K * xx,
         dst[row] = tmp[0];
     }
 }
+/*
+__kernel void softmax_1d(
+    __global const float* input,
+    __global float* output,
+    const int size,
+    __local float* local_max,
+    __local float* local_sum)
+{
+    int id = get_global_id(0);
+    int local_id = get_local_id(0);
+    int group_size = get_local_size(0);
+   // output[0]=3;
+    
+    // Step 1: Find the local max value for stability
+    float max_val = -FLT_MAX;
+    for (int i = id; i < size; i += group_size) {
+        max_val = fmax(max_val, input[i]);
+    }
+    
+
+    local_max[local_id] = max_val;
+
+    // Synchronize to make sure all values are written to local memory
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Perform work-group reduction to find the max value
+    for (int stride = group_size / 2; stride > 0; stride >>= 1) {
+        barrier(CLK_LOCAL_MEM_FENCE);
+        if (local_id < stride) {
+            local_max[local_id] = fmax(local_max[local_id], local_max[local_id + stride]);
+        }
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    float group_max = local_max[0];
+
+    // Step 2: Compute the local sum of exp(input - maxVal)
+    float sum = 0.0f;
+    for (int i = id; i < size; i += group_size) {
+        float val = input[i] - group_max;
+        // Ensure the value is not too small for exponentiation
+        if (val > -88.0f) { // exp(-88.0f) is close to the smallest non-zero float value
+            sum += exp(val);
+        }
+    }
+    
+    local_sum[local_id] = sum;
+
+    // Synchronize to make sure all values are written to local memory
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Perform work-group reduction to find the sum
+    for (int stride = group_size / 2; stride > 0; stride >>= 1) {
+        barrier(CLK_LOCAL_MEM_FENCE);
+        if (local_id < stride) {
+            local_sum[local_id] += local_sum[local_id + stride];
+        }
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Step 3: Compute the softmax output
+    if (id < size) {
+        float exp_val = exp(input[id] - group_max);
+        // Protect against division by zero in case local_sum[0] is very small
+        if (local_sum[0] > 1e-6) {
+        output[id] = exp_val / local_sum[0];
+        
+        } else {
+            output[id] = 0.0f;
+        }
+    }
+
+
+}
+*/
+
+// softmax.cl
+__kernel void softmax(__global const float* input, __global float* output, const int rows, const int cols) {
+    int row = get_global_id(0);
+
+    if (row < rows) {
+        // Step 1: Find the maximum value in the row for numerical stability
+        float max_val = -FLT_MAX;
+        for (int j = 0; j < cols; ++j) {
+            float value = input[row * cols + j];
+            if (value > max_val) {
+                max_val = value;
+            }
+        }
+
+        // Step 2: Compute the sum of the exponentials
+        float sum_exp = 0.0f;
+        for (int j = 0; j < cols; ++j) {
+            sum_exp += exp(input[row * cols + j] - max_val);
+        }
+
+        // Step 3: Compute the softmax
+        for (int j = 0; j < cols; ++j) {
+            output[row * cols + j] = exp(input[row * cols + j] - max_val) / sum_exp;
+        }
+    }
+}
+
+__kernel void relu(__global const float* input, __global float* output, const int rows, const int cols) {
+    // 获取全局的线程ID
+    int i = get_global_id(0); // 行索引
+    int j = get_global_id(1); // 列索引
+
+    // 确保我们没有读取任何超出矩阵大小的索引
+    if (i < rows && j < cols) {
+        int index = i * cols + j; // 计算一维索引
+        output[index] = fmax(input[index], 0); // ReLU函数
+    }
+}
 
 );
 
@@ -798,6 +914,9 @@ __kernel void KERNEL_NAME(__global TYPE* x, const int x_offset, __global TYPE* y
 }
 );
 
+
+
+
 #define CL_CHECK(err)                                               \
     do {                                                            \
         cl_int err_ = (err);                                        \
@@ -830,6 +949,8 @@ std::array<std::string, 30> dequant_str_values = {
     "dequantize_row_q8_0", "struct block_q8_0", "QK8_0", "QR8_0", "dequantize_q8_0",
     "convert_row_f16", "half", "1", "1", "convert_f16"
 };
+
+
 
 std::array<std::string, 30> dequant_mul_mat_vec_str_values = {
     "dequantize_mul_mat_vec_q4_0", "struct block_q4_0", "QK4_0", "QR4_0", "dequantize_q4_0",
@@ -892,6 +1013,8 @@ static cl_kernel dequantize_mul_mat_vec_q4_0_cl, dequantize_mul_mat_vec_q4_1_cl,
 static cl_kernel dequantize_block_q2_k_cl, dequantize_block_q3_k_cl, dequantize_block_q4_k_cl, dequantize_block_q5_k_cl, dequantize_block_q6_k_cl;
 static cl_kernel dequantize_mul_mat_vec_q2_K_cl, dequantize_mul_mat_vec_q3_K_cl, dequantize_mul_mat_vec_q4_K_cl, dequantize_mul_mat_vec_q5_K_cl, dequantize_mul_mat_vec_q6_K_cl;
 static cl_kernel mul_f32_cl;
+static cl_kernel softmax_f32_cl;
+static cl_kernel relu_f32_cl;
 static bool fp16_support;
 
 static cl_program build_program_from_source(cl_context ctx, cl_device_id dev, const char* program_buffer) {
@@ -1143,6 +1266,12 @@ void ggml_cl_init(void) {
 
     // mul kernel
     CL_CHECK((mul_f32_cl = clCreateKernel(program, "mul_f32", &err), err));
+
+    // softmax
+     CL_CHECK((softmax_f32_cl = clCreateKernel(program, "softmax", &err), err));
+
+     // relu
+     CL_CHECK((relu_f32_cl = clCreateKernel(program, "softmax", &err), err));
 }
 
 static cl_kernel* ggml_get_to_fp32_cl(ggml_type type) {
@@ -1310,6 +1439,48 @@ static cl_mem ggml_cl_pool_malloc(size_t size, size_t * actual_size) {
     }
     cl_mem mem;
     CL_CHECK((mem = clCreateBuffer(context, CL_MEM_READ_WRITE, size, NULL, &err), err));
+    *actual_size = size;
+    return mem;
+}
+
+static cl_mem ggml_cl_pool_data_malloc(size_t size, size_t * actual_size,void * data) {
+    scoped_spin_lock lock(g_cl_pool_lock);
+    cl_int err;
+
+    int best_i = -1;
+    size_t best_size = std::numeric_limits<size_t>::max(); //smallest unused buffer that fits our needs
+    int worst_i = -1;
+    size_t worst_size = 0; //largest unused buffer seen so far
+    for (int i = 0; i < MAX_CL_BUFFERS; ++i) {
+        cl_buffer &b = g_cl_buffer_pool[i];
+        if (b.size > 0 && b.size >= size && b.size < best_size)
+        {
+            best_i = i;
+            best_size = b.size;
+        }
+        if (b.size > 0 && b.size > worst_size)
+        {
+            worst_i = i;
+            worst_size = b.size;
+        }
+    }
+    if(best_i!=-1) //found the smallest buffer that fits our needs
+    {
+        cl_buffer& b = g_cl_buffer_pool[best_i];
+        cl_mem mem = b.mem;
+        *actual_size = b.size;
+        b.size = 0;
+        return mem;
+    }
+    if(worst_i!=-1) //no buffer that fits our needs, resize largest one to save memory
+    {
+         cl_buffer& b = g_cl_buffer_pool[worst_i];
+         cl_mem mem = b.mem;
+         b.size = 0;
+         clReleaseMemObject(mem);
+    }
+    cl_mem mem;
+    CL_CHECK((mem = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, size, data, &err), err));
     *actual_size = size;
     return mem;
 }
@@ -1781,6 +1952,7 @@ static void ggml_cl_mul_mat_q_f32(const ggml_tensor * src0, const ggml_tensor * 
                     // copy dst to host
                     float * d = (float *) ((char *) dst->data + i12*nb2 + i13*nb3);
                     CL_CHECK(clEnqueueReadBuffer(queue, d_D, true, 0, sizeof(float) * d_ne, d, 1, &events[events.size() - 1], NULL));
+
                     for (auto *event : events) {
                         clReleaseEvent(event);
                     }
@@ -1873,21 +2045,21 @@ size_t ggml_cl_mul_mat_get_wsize(const struct ggml_tensor * src0, const struct g
 
 
 // xr 
-static viod ggml_compute_cl_dup_same_cont(
+void ggml_compute_cl_dup_same_cont(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst){
 
 }
 
-static viod ggml_compute_cl_dup_f16(
+void ggml_compute_cl_dup_f16(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst){
 
 }
 
-static viod ggml_compute_cl_dup_f32(
+void ggml_compute_cl_dup_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst){
@@ -1897,15 +2069,91 @@ static viod ggml_compute_cl_dup_f32(
 
 
 // xr
-static void ggml_cl_softmax(const struct ggml_compute_params * params,
+void ggml_cl_softmax(const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
               struct ggml_tensor * dst){
 
+    cl_int ret;
+
+    const int rows  = ggml_nrows(src0);
+    const int cols = src0->ne[0];
+
+// 创建内存对象
+    size_t x_size;
+    size_t y_size;
+    cl_mem input_mem_obj =  ggml_cl_pool_data_malloc(sizeof(float) * rows * cols, &x_size,src0->data);
+   // clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * nr, src0->data, &ret);
+    cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * rows * cols, &y_size);
+    //clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * nr, NULL, &ret);
+
+    // 计算工作组大小
+    // size_t local_work_size = 256; // 根据你的设备特性和内核需求选择
+    // size_t global_work_size = ((nr + local_work_size - 1) / local_work_size) * local_work_size; // 确保全局工作大小是本地工作大小的整数倍
+
+    // 为本地内存分配空间
+    // size_t local_memory_size = local_work_size * sizeof(float); // 本地内存大小必须足以存储每个工作项的一个浮点数
+
+    // 设置内核参数
+    CL_CHECK(clSetKernelArg(softmax_f32_cl, 0, sizeof(cl_mem), &input_mem_obj));
+    CL_CHECK(clSetKernelArg(softmax_f32_cl, 1, sizeof(cl_mem), &output_mem_obj));
+    CL_CHECK(clSetKernelArg(softmax_f32_cl, 2, sizeof(int), &rows)); // softmax的输入大小
+    CL_CHECK(clSetKernelArg(softmax_f32_cl, 3, sizeof(int), &cols));
+    // CL_CHECK(clSetKernelArg(softmax_f32_cl, 3, local_memory_size, NULL)); // maxVal 本地内存
+    // CL_CHECK(clSetKernelArg(softmax_f32_cl, 4, local_memory_size, NULL)); // sum 本地内存
+    // CL_CHECK(clSetKernelArg(*to_fp32_cl, 1, sizeof(cl_mem), &d_X));
+    // CL_CHECK(clEnqueueNDRangeKernel(queue, *to_fp32_cl, 1, &offset, &global, local > 0 ? &local : NULL, events.size(), !events.empty() ? events.data() : NULL, NULL));
+   // ret = clSetKernelArg(kernel, 2, sizeof(int), &inputSize); // softmax的输入大小
+    
+    
+    // 结束时间
+   // auto end2 = std::chrono::high_resolution_clock::now();
+
+    // 计算并输出执行时间
+    //std::chrono::duration<double> diff2 = end2 - start2;
+  //  std::cout << "softmax init time: " << diff2.count() << " seconds" << std::endl;
+
+    // 开始时间
+    auto start = std::chrono::high_resolution_clock::now();
+    // 执行内核
+    std::vector<cl_event> softmax_event;
+    softmax_event.emplace_back();
+
+    size_t global_item_size[] = {static_cast<size_t>(rows), static_cast<size_t>(cols)};
+    size_t local_item_size[] = {1, static_cast<size_t>(cols)}; // 本地工作组大小，可根据实际硬件调整
+
+   // size_t global_item_size = inputSize; // 处理的总元素数
+    ret = clEnqueueNDRangeKernel(queue, softmax_f32_cl, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+        //   clEnqueueNDRangeKernel
+     // 等待内核执行完成
+    clFinish(queue);            
+
+     // 结束时间
+    auto end = std::chrono::high_resolution_clock::now();
+
+    // 计算并输出执行时间
+    std::chrono::duration<double> diff = end - start;
+    std::cout << "softmax compute time: " << diff.count() << " seconds" << std::endl;
+    // 读取结果
+    // copy dst to host
+    float * d = (float *) ((char *) dst->data);
+    CL_CHECK(clEnqueueReadBuffer(queue, output_mem_obj, CL_TRUE, 0, rows * cols * sizeof(float), d, 0, NULL, NULL));
+
+    for (auto *event : softmax_event) {
+        clReleaseEvent(event);
+    }
+
+    softmax_event.clear();       
+
+      // 执行内核
+    // ret = clEnqueueNDRangeKernel(queue, relu_f32_cl, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+  
+    ggml_cl_pool_free(input_mem_obj,x_size);
+    ggml_cl_pool_free(output_mem_obj,y_size);
 }
 
 // wh
-static void ggml_compute_cl_abs_f32(
+void ggml_compute_cl_abs_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1913,7 +2161,7 @@ static void ggml_compute_cl_abs_f32(
 }
 
 // xr
-static void ggml_compute_cl_sgn_f32(
+void ggml_compute_cl_sgn_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1921,7 +2169,7 @@ static void ggml_compute_cl_sgn_f32(
 }
 
 // xr
-static void ggml_compute_cl_neg_f32(
+void ggml_compute_cl_neg_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1929,7 +2177,7 @@ static void ggml_compute_cl_neg_f32(
 }
 
 // xr
-static void ggml_compute_cl_step_f32(
+void ggml_compute_cl_step_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1937,7 +2185,7 @@ static void ggml_compute_cl_step_f32(
 }
 
 // xr
-static void ggml_compute_cl_tanh_f32(
+void ggml_compute_cl_tanh_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1945,7 +2193,7 @@ static void ggml_compute_cl_tanh_f32(
 }
 
 // xr
-static void ggml_compute_cl_elu_f32(
+void ggml_compute_cl_elu_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1953,7 +2201,46 @@ static void ggml_compute_cl_elu_f32(
 }
 
 // xr
-static void ggml_compute_cl_relu_f32(
+void ggml_compute_cl_relu_f32(
+        const struct ggml_compute_params * params,
+        const struct ggml_tensor * src0,
+        struct ggml_tensor * dst) {
+
+    const int rows  = ggml_nrows(src0);
+    const int cols = src0->ne[0];
+
+    cl_int ret;
+
+    // 创建内存缓冲区
+    size_t x_size;
+    size_t y_size;
+    cl_mem input_mem_obj =  ggml_cl_pool_data_malloc(sizeof(float) * rows * cols, &x_size,src0->data);
+   // clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * nr, src0->data, &ret);
+    cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * rows * cols, &y_size);
+    // 设置 kernel 参数
+    ret = clSetKernelArg(relu_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
+    ret = clSetKernelArg(relu_f32_cl, 1, sizeof(cl_mem), (void *)&output_mem_obj);
+    ret = clSetKernelArg(relu_f32_cl, 2, sizeof(int), &rows);
+    ret = clSetKernelArg(relu_f32_cl, 3, sizeof(int), &cols);
+
+    // 设置NDRange的大小
+    size_t global_item_size[] = {static_cast<size_t>(rows), static_cast<size_t>(cols)};
+    size_t local_item_size[] = {1, static_cast<size_t>(cols)}; // 本地工作组大小，可根据实际硬件调整
+
+    // 执行内核
+    ret = clEnqueueNDRangeKernel(queue, relu_f32_cl, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    clFinish(queue);
+
+    float *d = (float*)((char*)dst->data);
+    // 读取输出数据
+    ret = clEnqueueReadBuffer(queue, output_mem_obj, CL_TRUE, 0, rows * cols * sizeof(float), d, 0, NULL, NULL);
+    
+    ggml_cl_pool_free(input_mem_obj,x_size);
+    ggml_cl_pool_free(output_mem_obj,y_size);
+}
+
+// xr
+void ggml_compute_cl_gelu_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1961,7 +2248,7 @@ static void ggml_compute_cl_relu_f32(
 }
 
 // xr
-static void ggml_compute_cl_gelu_f32(
+void ggml_compute_cl_gelu_quick_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1969,15 +2256,7 @@ static void ggml_compute_cl_gelu_f32(
 }
 
 // xr
-static void ggml_compute_cl_gelu_quick_f32(
-        const struct ggml_compute_params * params,
-        const struct ggml_tensor * src0,
-        struct ggml_tensor * dst) {
-
-}
-
-// xr
-static void ggml_compute_cl_silu_f32(
+void ggml_compute_cl_silu_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
@@ -1985,22 +2264,22 @@ static void ggml_compute_cl_silu_f32(
 }
 
 // xr NOP
-static void ggml_cl_permute(){
+void ggml_cl_permute(const struct ggml_compute_params * params, const struct ggml_tensor * src0, struct ggml_tensor * dst){
 
 }
 
 // xr NOP
-static void ggml_cl_transpose(){
+void ggml_cl_transpose(const struct ggml_compute_params * params, const struct ggml_tensor * src0, struct ggml_tensor * dst){
 
 }
 
 // xr NOP
-static void ggml_cl_view(const struct ggml_compute_params * params, const struc ggml_tensor * src0, struct ggml_tensor * dst){
+void ggml_cl_view(const struct ggml_compute_params * params, const struct ggml_tensor * src0, struct ggml_tensor * dst){
 
 }
 
 // xr NOP
-static void ggml_cl_reshape(const struct ggml_compute_params * params,
+void ggml_cl_reshape(const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst){
 
@@ -2009,7 +2288,7 @@ static void ggml_cl_reshape(const struct ggml_compute_params * params,
 
 
 // wsy
-static void ggml_cl_rope_f32(const struct ggml_compute_params * params,
+void ggml_cl_rope_f32(const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
         struct ggml_tensor * dst,
@@ -2018,7 +2297,7 @@ static void ggml_cl_rope_f32(const struct ggml_compute_params * params,
 }
 
 // wsy
-static void ggml_cl_rope_f16(const struct ggml_compute_params * params,
+void ggml_cl_rope_f16(const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
         struct ggml_tensor * dst,
@@ -2027,7 +2306,7 @@ static void ggml_cl_rope_f16(const struct ggml_compute_params * params,
 }
 
 // wsy
-static void ggml_cl_rms_norm_f32(const struct ggml_compute_params * params,
+void ggml_cl_rms_norm_f32(const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst){
 
@@ -2037,7 +2316,7 @@ static void ggml_cl_rms_norm_f32(const struct ggml_compute_params * params,
   
 
 // zjl ggml_cl_add
-static void ggml_compute_cl_add_f32(
+void ggml_compute_cl_add_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
@@ -2045,17 +2324,10 @@ static void ggml_compute_cl_add_f32(
 
 }
 
-// zjl
-static void ggml_compute_cl_add_f32(
-    const struct ggml_compute_params * params,
-        const struct ggml_tensor * src0,
-        const struct ggml_tensor * src1,
-        struct ggml_tensor * dst){
-    
-}
+
 
 // zjl
-static void ggml_compute_cl_add_f16_f16(
+void ggml_compute_cl_add_f16_f16(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
@@ -2064,7 +2336,7 @@ static void ggml_compute_cl_add_f16_f16(
 }
 
 // zjl
-static void ggml_compute_cl_add_f16_f32(
+void ggml_compute_cl_add_f16_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
@@ -2073,7 +2345,7 @@ static void ggml_compute_cl_add_f16_f32(
 }
 
 // zjl
-static void ggml_compute_cl_add_q_f32(
+void ggml_compute_cl_add_q_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
@@ -2086,7 +2358,7 @@ static void ggml_compute_cl_add_q_f32(
 
 // wh  ggml_comput_cl_get_rows
 
-static void ggml_compute_cl_get_rows_q(
+void ggml_compute_cl_get_rows_q(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
@@ -2095,7 +2367,7 @@ static void ggml_compute_cl_get_rows_q(
 }
 
 // wh
-static void ggml_compute_cl_get_rows_f16(
+void ggml_compute_cl_get_rows_f16(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
@@ -2104,7 +2376,7 @@ static void ggml_compute_cl_get_rows_f16(
 }
 
 // wh
-static void ggml_compute_cl_get_rows_f32(
+void ggml_compute_cl_get_rows_f32(
         const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         const struct ggml_tensor * src1,
