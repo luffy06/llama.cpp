@@ -9669,12 +9669,24 @@ struct llama_context * llama_new_context_with_model(
 
             for (auto & k : ctx->kv_self.k_l) {
                 memory_size_k += ggml_nbytes(k);
+#ifdef MLOCK_KV
+                mlock(k->data, ggml_nbytes(k));
+#endif
             }
 
             for (auto & v : ctx->kv_self.v_l) {
                 memory_size_v += ggml_nbytes(v);
+#ifdef MLOCK_KV
+                mlock(v->data, ggml_nbytes(v));
+#endif
             }
 
+#ifdef MLOCK_KV
+            LLAMA_LOG_INFO("MLock %s: KV self size  = %7.2f MiB, K (%s): %7.2f MiB, V (%s): %7.2f MiB\n", __func__,
+                (float)(memory_size_k + memory_size_v) / (1024.0f * 1024.0f),
+                ggml_type_name(type_k), (float)memory_size_k / (1024.0f * 1024.0f),
+                ggml_type_name(type_v), (float)memory_size_v / (1024.0f * 1024.0f));
+#endif
             LLAMA_LOG_INFO("%s: KV self size  = %7.2f MiB, K (%s): %7.2f MiB, V (%s): %7.2f MiB\n", __func__,
                 (float)(memory_size_k + memory_size_v) / (1024.0f * 1024.0f),
                 ggml_type_name(type_k), (float)memory_size_k / (1024.0f * 1024.0f),
@@ -9709,11 +9721,14 @@ struct llama_context * llama_new_context_with_model(
             size_t alloc_size = ggml_allocr_alloc_graph(ctx->alloc, gf);
 
             LLAMA_LOG_INFO("%s: compute buffer total size = %.2f MiB\n", __func__, (ctx->buf_compute_meta.size() + alloc_size) / 1024.0 / 1024.0);
-
             // create allocator again with exact memory requirements
             ggml_allocr_free(ctx->alloc);
 
             ctx->buf_alloc = ggml_backend_alloc_buffer(ctx->backend, alloc_size);
+#ifdef MLOCK_BUFFER
+            mlock(ctx->buf_alloc->context-16, alloc_size);            
+            LLAMA_LOG_INFO("MLOCK %s: compute buffer %p total size = %.2f MiB\n", __func__, ctx->buf_alloc->context-16, (ctx->buf_compute_meta.size() + alloc_size) / 1024.0 / 1024.0);
+#endif
             ctx->alloc = ggml_allocr_new_from_buffer(ctx->buf_alloc);
 #if defined(GGML_USE_CUBLAS) && !defined(LLAMA_GGML_BACKEND_CUDA_TEST)
             if (model->n_gpu_layers > 0) {

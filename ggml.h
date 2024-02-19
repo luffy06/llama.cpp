@@ -186,8 +186,10 @@
 
 #define MLOCK
 #ifdef MLOCK
-#define LOCK_SIZE 1.75
+#define LOCK_SIZE 1.9
 #define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
+//#define MLOCK_KV
+//#define MLOCK_BUFFER
 #endif
 
 //#define DEBUG
