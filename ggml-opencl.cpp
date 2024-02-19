@@ -830,6 +830,39 @@ __kernel void relu(__global const float* input, __global float* output, const in
     }
 }
 
+__kernel void gelu(__global float* input, __global float* output, const int rows, const int cols) {
+    // 获取全局工作项的ID
+    int x = get_global_id(0);
+    int y = get_global_id(1);
+
+    if (x < rows && y < cols) {
+        int index = x * cols + y;
+        float in_value = input[index];
+
+        // 计算GELU激活函数
+        float cdf = 0.5f * (1.0f + erf(in_value / sqrt(2.0f)));
+        float out_value = in_value * cdf;
+
+        output[index] = out_value;
+    }
+}
+
+__kernel void silu(__global float* input, __global float* output, const int rows, const int cols) {
+    // 获取全局工作项的ID
+    int x = get_global_id(0);
+    int y = get_global_id(1);
+
+    if (x < rows && y < cols) {
+        int index = x * cols + y;
+        float in_value = input[index];
+
+        // 计算SiLU激活函数
+        float out_value = in_value / (1.0f + exp(-in_value));
+
+        output[index] = out_value;
+    }
+}
+
 );
 
 
@@ -1015,6 +1048,8 @@ static cl_kernel dequantize_mul_mat_vec_q2_K_cl, dequantize_mul_mat_vec_q3_K_cl,
 static cl_kernel mul_f32_cl;
 static cl_kernel softmax_f32_cl;
 static cl_kernel relu_f32_cl;
+static cl_kernel gelu_f32_cl;
+static cl_kernel silu_f32_cl;
 static bool fp16_support;
 
 static cl_program build_program_from_source(cl_context ctx, cl_device_id dev, const char* program_buffer) {
@@ -1270,8 +1305,14 @@ void ggml_cl_init(void) {
     // softmax
      CL_CHECK((softmax_f32_cl = clCreateKernel(program, "softmax", &err), err));
 
-     // relu
-     CL_CHECK((relu_f32_cl = clCreateKernel(program, "softmax", &err), err));
+    // relu
+    CL_CHECK((relu_f32_cl = clCreateKernel(program, "softmax", &err), err));
+
+    // gelu
+    CL_CHECK((gelu_f32_cl = clCreateKernel(program, "gelu", &err), err));
+
+    // silu
+    CL_CHECK((silu_f32_cl = clCreateKernel(program, "silu", &err), err));
 }
 
 static cl_kernel* ggml_get_to_fp32_cl(ggml_type type) {
@@ -2245,6 +2286,37 @@ void ggml_compute_cl_gelu_f32(
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
 
+    const int rows  = ggml_nrows(src0);
+    const int cols = src0->ne[0];
+
+    cl_int ret;
+
+    // 创建内存缓冲区
+    size_t x_size;
+    size_t y_size;
+    cl_mem input_mem_obj =  ggml_cl_pool_data_malloc(sizeof(float) * rows * cols, &x_size,src0->data);
+   // clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * nr, src0->data, &ret);
+    cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * rows * cols, &y_size);
+    // 设置 kernel 参数
+    ret = clSetKernelArg(gelu_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
+    ret = clSetKernelArg(gelu_f32_cl, 1, sizeof(cl_mem), (void *)&output_mem_obj);
+    ret = clSetKernelArg(gelu_f32_cl, 2, sizeof(int), &rows);
+    ret = clSetKernelArg(gelu_f32_cl, 3, sizeof(int), &cols);
+
+    // 设置NDRange的大小
+    size_t global_item_size[] = {static_cast<size_t>(rows), static_cast<size_t>(cols)};
+    size_t local_item_size[] = {1, static_cast<size_t>(cols)}; // 本地工作组大小，可根据实际硬件调整
+
+    // 执行内核
+    ret = clEnqueueNDRangeKernel(queue, gelu_f32_cl, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    clFinish(queue);
+
+    float *d = (float*)((char*)dst->data);
+    // 读取输出数据
+    ret = clEnqueueReadBuffer(queue, output_mem_obj, CL_TRUE, 0, rows * cols * sizeof(float), d, 0, NULL, NULL);
+    
+    ggml_cl_pool_free(input_mem_obj,x_size);
+    ggml_cl_pool_free(output_mem_obj,y_size);
 }
 
 // xr
@@ -2261,6 +2333,37 @@ void ggml_compute_cl_silu_f32(
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
 
+    const int rows  = ggml_nrows(src0);
+    const int cols = src0->ne[0];
+
+    cl_int ret;
+
+    // 创建内存缓冲区
+    size_t x_size;
+    size_t y_size;
+    cl_mem input_mem_obj =  ggml_cl_pool_data_malloc(sizeof(float) * rows * cols, &x_size,src0->data);
+   // clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * nr, src0->data, &ret);
+    cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * rows * cols, &y_size);
+    // 设置 kernel 参数
+    ret = clSetKernelArg(silu_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
+    ret = clSetKernelArg(silu_f32_cl, 1, sizeof(cl_mem), (void *)&output_mem_obj);
+    ret = clSetKernelArg(silu_f32_cl, 2, sizeof(int), &rows);
+    ret = clSetKernelArg(silu_f32_cl, 3, sizeof(int), &cols);
+
+    // 设置NDRange的大小
+    size_t global_item_size[] = {static_cast<size_t>(rows), static_cast<size_t>(cols)};
+    size_t local_item_size[] = {1, static_cast<size_t>(cols)}; // 本地工作组大小，可根据实际硬件调整
+
+    // 执行内核
+    ret = clEnqueueNDRangeKernel(queue, silu_f32_cl, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    clFinish(queue);
+
+    float *d = (float*)((char*)dst->data);
+    // 读取输出数据
+    ret = clEnqueueReadBuffer(queue, output_mem_obj, CL_TRUE, 0, rows * cols * sizeof(float), d, 0, NULL, NULL);
+    
+    ggml_cl_pool_free(input_mem_obj,x_size);
+    ggml_cl_pool_free(output_mem_obj,y_size);
 }
 
 // xr NOP
