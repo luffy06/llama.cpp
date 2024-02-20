@@ -353,7 +353,6 @@ int main(int argc, char ** argv) {
 
             // end of text token
             if (!embd.empty() && embd.back() == llama_token_eos(model)) {
-                LOG_TEE(" [end of text]\n");
                 break;
             }
         }
