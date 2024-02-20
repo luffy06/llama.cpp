@@ -160,8 +160,8 @@ int main(int argc, char ** argv) {
     // Should not run without any tokens
     for (uint32_t i = 0; i < embd_inp_list.size(); ++ i) {
         std::vector<llama_token> & embd_inp = embd_inp_list[i];
+        LOG_TEE("%s: Process (%d/%d) prompt\n", __func__, i, embd_inp_list.size());
         if (i % step == 0 || i == embd_inp_list.size() - 1) {
-            LOG_TEE("%s: Process (%d/%d) prompt\n", __func__, i, embd_inp_list.size());
         }
         if (embd_inp.empty()) {
             embd_inp.push_back(llama_token_bos(model));
@@ -221,6 +221,7 @@ int main(int argc, char ** argv) {
         struct llama_sampling_context * ctx_sampling = llama_sampling_init(sparams);
     
         llama_reset_timings(ctx);
+        llama_kv_cache_clear(ctx);
 
         while (n_remain != 0) {
             // predict
@@ -276,8 +277,10 @@ int main(int argc, char ** argv) {
 
                     LOG("eval: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, embd).c_str());
 
-                    if (llama_decode(ctx, llama_batch_get_one(&embd[i], n_eval, n_past, 0))) {
-                        LOG_TEE("%s : failed to eval\n", __func__);
+                    int ret = llama_decode(ctx, llama_batch_get_one(&embd[i], n_eval, n_past, 0));
+
+                    if (ret) {
+                        LOG_TEE("%s: failed to eval, return code %d\n", __func__, ret);
                         return 1;
                     }
 
