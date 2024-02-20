@@ -6,7 +6,6 @@ def format_chatgpt_prompts(args):
     fout = open(args.output_path, "w")
     args.data_path = "MohamedRashad/ChatGPT-prompts"
     dataset = load_dataset(args.data_path)
-    i = -1
     for row in dataset["train"]:
         fout.write(row["human_prompt"] + "\n")
 
