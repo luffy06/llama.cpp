@@ -156,10 +156,13 @@ int main(int argc, char ** argv) {
     }
 
     std::vector<llama_timings> all_timings;
+    uint32_t step = embd_inp_list.size() / 10;
     // Should not run without any tokens
     for (uint32_t i = 0; i < embd_inp_list.size(); ++ i) {
         std::vector<llama_token> & embd_inp = embd_inp_list[i];
-        LOG_TEE("%s: Process %dth prompt\n", __func__, i);
+        if (i % step == 0 || i == embd_inp_list.size() - 1) {
+            LOG_TEE("%s: Process (%d/%d) prompt\n", __func__, i, embd_inp_list.size());
+        }
         if (embd_inp.empty()) {
             embd_inp.push_back(llama_token_bos(model));
             LOG("%dth embd_inp was considered empty and bos was added: %s\n", i, LOG_TOKENS_TOSTR_PRETTY(ctx, embd_inp).c_str());
