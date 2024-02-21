@@ -912,8 +912,138 @@ __kernel void abs_kernel(__global const float* input, __global float* output, co
     int index = row * width + col;
 
     // 使用内置函数fabsf计算绝对值
-    output[index] = fabsf(input[index]);
+    output[index] = fabs(input[index]);
 }
+
+__kernel void rms_norm(
+    __global float* input,
+    __global float* output,
+    const int n1,
+    const int n2,
+    const int n3,
+    const int n4)
+{
+    // 获取全局ID
+    int i = get_global_id(0);
+    int j = get_global_id(1);
+    int k = get_global_id(2);
+
+    // 判断是否在数组边界内
+    if (i < n1 && j < n2 && k < n3) {
+        // 计算该向量在一维数组中的起始位置
+        int start = i * n2 * n3 * n4 + j * n3 * n4 + k * n4;
+
+        // 计算RMS值
+        float sum = 0.0f;
+        for (int l = 0; l < n4; ++l) {
+            float value = input[start + l];
+            sum += value * value;
+        }
+        float rms = sqrt(sum / n4);
+
+        // 进行RMS归一化
+        if (rms != 0) {
+            for (int l = 0; l < n4; ++l) {
+                output[start + l] = input[start + l] / rms;
+            }
+        } else {
+            // 如果RMS为0，则复制原向量
+            for (int l = 0; l < n4; ++l) {
+                output[start + l] = input[start + l];
+            }
+        }
+    }
+}
+
+__kernel void get_rows_f32(__global float* src0,
+                          __global float* src1,
+                          __global float* dst,
+                          const int nb1,
+                          const int nb2,
+                          const int nb3,
+                          const int nb01,
+                          const int nb02,
+                          const int nb03,
+                          const int nb10,
+                          const int nb11,
+                          const int nb12,
+                          const int nc) {
+    // 获取全局ID
+    int i10 = get_global_id(0);
+    int i11 = get_global_id(1);
+    int i12 = get_global_id(2);
+
+    // 计算索引
+    const int i01 = *(int *) &src1[i10*nb10 + i11*nb11 + i12*nb12];
+
+    // 计算源指针和目标指针
+    float *dst_ptr = &dst[i10*nb1  + i11*nb2  + i12*nb3];
+    float *src_ptr = &src0[i01*nb01 + i11*nb02 + i12*nb03];
+
+    // 复制向量
+    for (int i = 0; i < nc; ++i) {
+        dst_ptr[i] = src_ptr[i];
+    }
+}
+
+__kernel void add(
+    __global const float* src0,
+    __global const float* src1,
+    __global float* dst,
+    const int ne00,
+    const int ne01,
+    const int ne02,
+    const int ne03,
+    const int ne10,
+    const int ne11,
+    const int ne12,
+    const int ne13,
+    const int nb0,
+    const int nb1,
+    const int nb2,
+    const int nb3,
+    const int nb10,
+    const int nb11,
+    const int nb12,
+    const int nb13,
+    const int nr,
+    const int nr0
+) {
+    int ir = get_global_id(0);
+    if (ir >= nr) return;
+
+    // Compute the multi-dimensional indices
+    const int i03 = ir / (ne02 * ne01);
+    const int i02 = (ir - i03 * ne02 * ne01) / ne01;
+    const int i01 = (ir - i03 * ne02 * ne01 - i02 * ne01);
+    
+    const int i13 = i03 % ne13;
+    const int i12 = i02 % ne12;
+    const int i11 = i01 % ne11;
+
+    if (nb10 == sizeof(float)) {
+        // src1 is contiguous
+        float * dst_ptr  = (__global float *) ((__global char *) dst + i03 * nb3 + i02 * nb2 + i01 * nb1);
+        __global float * src0_ptr = (__global float *) ((__global char *) src0 + i03 * nb3 + i02 * nb2 + i01 * nb1);
+        __global float * src1_ptr = (__global float *) ((__global char *) src1 + i13 * nb13 + i12 * nb12 + i11 * nb11);
+
+        for (int r = 0; r < nr0; ++r) {
+            dst_ptr[r] = src0_ptr[r] + src1_ptr[r];
+        }
+    } else {
+        // src1 is not contiguous
+        float * dst_ptr  = (__global float *) ((__global char *) dst + i03 * nb3 + i02 * nb2 + i01 * nb1);
+        __global float * src0_ptr = (__global float *) ((__global char *) src0 + i03 * nb3 + i02 * nb2 + i01 * nb1);
+
+        for (int i0 = 0; i0 < ne00; ++i0) {
+            const int i10 = i0 % ne10;
+            __global float * src1_ptr = (__global float *) ((__global char *) src1 + i13 * nb13 + i12 * nb12 + i11 * nb11 + i10 * nb10);
+
+            dst_ptr[i0] = src0_ptr[i0] + *src1_ptr;
+        }
+    }
+}
+
 );
 
 
@@ -1107,6 +1237,9 @@ static cl_kernel neg_f32_cl;
 static cl_kernel step_f32_cl;
 static cl_kernel sgn_f32_cl;
 static cl_kernel abs_f32_cl;
+static cl_kernel rms_norm_f32_cl;
+static cl_kernel get_row_f32_cl;
+static cl_kernel add_f32_cl;
 static bool fp16_support;
 
 static cl_program build_program_from_source(cl_context ctx, cl_device_id dev, const char* program_buffer) {
@@ -1363,7 +1496,7 @@ void ggml_cl_init(void) {
      CL_CHECK((softmax_f32_cl = clCreateKernel(program, "softmax", &err), err));
 
     // relu
-    CL_CHECK((relu_f32_cl = clCreateKernel(program, "softmax", &err), err));
+    CL_CHECK((relu_f32_cl = clCreateKernel(program, "relu", &err), err));
 
     // gelu
     CL_CHECK((gelu_f32_cl = clCreateKernel(program, "gelu", &err), err));
@@ -1388,6 +1521,15 @@ void ggml_cl_init(void) {
 
     // abs
     CL_CHECK((sgn_f32_cl = clCreateKernel(program, "abs_kernel", &err), err));
+
+    // rms_norm
+    CL_CHECK((rms_norm_f32_cl = clCreateKernel(program, "rms_norm", &err), err));
+
+    // get_row_f32
+    CL_CHECK((get_row_f32_cl = clCreateKernel(program, "get_rows_f32", &err), err));
+
+    // add
+    CL_CHECK((add_f32_cl = clCreateKernel(program, "add", &err), err));
 }
 
 static cl_kernel* ggml_get_to_fp32_cl(ggml_type type) {
@@ -2317,7 +2459,6 @@ void ggml_compute_cl_sgn_f32(
 
     cl_int ret;
    
-
     // 创建内存缓冲区
     size_t x_size;
     size_t y_size;
@@ -2676,10 +2817,72 @@ void ggml_cl_rms_norm_f32(const struct ggml_compute_params * params,
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst){
 
+    
+    GGML_TENSOR_UNARY_OP_LOCALS
+
+    float eps;
+    memcpy(&eps, dst->op_params, sizeof(float));
+
+    GGML_ASSERT(eps > 0.0f);
+
+    cl_int ret;
+
+    // 创建内存缓冲区
+    size_t x_size;
+    size_t y_size;
+    cl_mem input_mem_obj =  ggml_cl_pool_data_malloc(sizeof(float) * ne03 * ne02 * ne01 * ne00, &x_size,src0->data);
+    cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * ne3 * ne2 * ne1 * ne0, &y_size);
+    // 设置 kernel 参数
+    ret = clSetKernelArg(rms_norm_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
+    ret = clSetKernelArg(rms_norm_f32_cl, 1, sizeof(cl_mem), (void *)&output_mem_obj);
+    ret = clSetKernelArg(rms_norm_f32_cl, 2, sizeof(int), &ne03);
+    ret = clSetKernelArg(rms_norm_f32_cl, 3, sizeof(int), &ne02);
+    ret = clSetKernelArg(rms_norm_f32_cl, 4, sizeof(int), &ne01);
+    ret = clSetKernelArg(rms_norm_f32_cl, 5, sizeof(int), &ne00);
+
+    // 设置NDRange的大小
+    size_t global_item_size[] = {static_cast<size_t>(ne03), static_cast<size_t>(ne02), 
+                                    static_cast<size_t>(ne01), static_cast<size_t>(ne00)};
+    size_t local_item_size[] = {1, 1, 1, static_cast<size_t>(ne00)}; // 本地工作组大小，可根据实际硬件调整
+
+    // 执行内核
+    ret = clEnqueueNDRangeKernel(queue, rms_norm_f32_cl, 4, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    clFinish(queue);
+
+    float *d = (float*)((char*)dst->data);
+    // 读取输出数据
+    ret = clEnqueueReadBuffer(queue, output_mem_obj, CL_TRUE, 0, ne0 * ne1 * ne2 * ne3 * sizeof(float), d, 0, NULL, NULL);
+    
+    ggml_cl_pool_free(input_mem_obj,x_size);
+    ggml_cl_pool_free(output_mem_obj,y_size);
+
 }
 
+/*
 
-  
+__kernel void add(
+    __global const float* src0,
+    __global const float* src1,
+    __global float* dst,
+    const int ne00,
+    const int ne01,
+    const int ne02,
+    const int ne03,
+    const int ne10,
+    const int ne11,
+    const int ne12,
+    const int ne13,
+    const int nb0,
+    const int nb1,
+    const int nb2,
+    const int nb3,
+    const int nb10,
+    const int nb11,
+    const int nb12,
+    const int nb13,
+    const int nr,
+    const int nr0
+*/
 
 // zjl ggml_cl_add
 void ggml_compute_cl_add_f32(
@@ -2688,6 +2891,60 @@ void ggml_compute_cl_add_f32(
         const struct ggml_tensor * src1,
         struct ggml_tensor * dst){
 
+    GGML_TENSOR_BINARY_OP_LOCALS
+
+    const int64_t nc = ne00;
+    const int64_t nr = ggml_nelements(src1); GGML_UNUSED(nr);
+    const int64_t nr0 = ne00 / ne10;
+
+    cl_int ret;
+
+    // 创建内存缓冲区
+    size_t x_size;
+    size_t x1_size;
+    size_t y_size;
+    cl_mem input_mem_obj =  ggml_cl_pool_data_malloc(sizeof(float) * ne03 * ne02 * ne01 * ne00, &x_size,src0->data);
+    cl_mem input1_mem_obj = ggml_cl_pool_data_malloc(sizeof(float) * nr, &x1_size, src1->data);
+    cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * ne3 * ne2 * ne1 * ne0, &y_size);
+    // 设置 kernel 参数
+    ret = clSetKernelArg(get_row_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
+    ret = clSetKernelArg(get_row_f32_cl, 1, sizeof(cl_mem), (void *)&input1_mem_obj);
+    ret = clSetKernelArg(get_row_f32_cl, 2, sizeof(cl_mem), (void *)&output_mem_obj);
+    ret = clSetKernelArg(get_row_f32_cl, 3, sizeof(int), &ne00);
+    ret = clSetKernelArg(get_row_f32_cl, 4, sizeof(int), &ne01);
+    ret = clSetKernelArg(get_row_f32_cl, 5, sizeof(int), &ne02);
+    ret = clSetKernelArg(get_row_f32_cl, 6, sizeof(int), &ne03);
+    ret = clSetKernelArg(get_row_f32_cl, 7, sizeof(int), &ne10);
+    ret = clSetKernelArg(get_row_f32_cl, 8, sizeof(int), &ne11);
+    ret = clSetKernelArg(get_row_f32_cl, 9, sizeof(int), &ne12);
+    ret = clSetKernelArg(get_row_f32_cl, 10, sizeof(int), &ne13);
+    ret = clSetKernelArg(get_row_f32_cl, 11, sizeof(int), &nb0);
+    ret = clSetKernelArg(get_row_f32_cl, 12, sizeof(int), &nb1);
+    ret = clSetKernelArg(get_row_f32_cl, 13, sizeof(int), &nb2);
+    ret = clSetKernelArg(get_row_f32_cl, 14, sizeof(int), &nb3);
+    ret = clSetKernelArg(get_row_f32_cl, 15, sizeof(int), &nb10);
+    ret = clSetKernelArg(get_row_f32_cl, 16, sizeof(int), &nb11);
+    ret = clSetKernelArg(get_row_f32_cl, 17, sizeof(int), &nb12);
+    ret = clSetKernelArg(get_row_f32_cl, 18, sizeof(int), &nb13);
+    ret = clSetKernelArg(get_row_f32_cl, 19, sizeof(int), &nr);
+    ret = clSetKernelArg(get_row_f32_cl, 20, sizeof(int), &nr0);
+
+    // 设置NDRange的大小
+    size_t global_item_size[] = {static_cast<size_t>(ne03), static_cast<size_t>(ne02), 
+                                    static_cast<size_t>(ne01), static_cast<size_t>(ne00)};
+    size_t local_item_size[] = {1, 1, 1, static_cast<size_t>(ne00)}; // 本地工作组大小，可根据实际硬件调整
+
+    // 执行内核
+    ret = clEnqueueNDRangeKernel(queue, get_row_f32_cl, 4, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    clFinish(queue);
+
+    float *d = (float*)((char*)dst->data);
+    // 读取输出数据
+    ret = clEnqueueReadBuffer(queue, output_mem_obj, CL_TRUE, 0, ne0 * ne1 * ne2 * ne3 * sizeof(float), d, 0, NULL, NULL);
+    
+    ggml_cl_pool_free(input_mem_obj, x_size);
+    ggml_cl_pool_free(input1_mem_obj, x1_size);
+    ggml_cl_pool_free(output_mem_obj, y_size);
 }
 
 
@@ -2741,6 +2998,22 @@ void ggml_compute_cl_get_rows_f16(
     
 }
 
+
+/*
+__kernel void get_rows_f32(__global float* src0,
+                          __global float* src1,
+                          __global float* dst,
+                          const int nb1,
+                          const int nb2,
+                          const int nb3,
+                          const int nb01,
+                          const int nb02,
+                          const int nb03,
+                          const int nb10,
+                          const int nb11,
+                          const int nb12,
+                          const int nc) {
+*/
 // wh
 void ggml_compute_cl_get_rows_f32(
         const struct ggml_compute_params * params,
@@ -2748,11 +3021,57 @@ void ggml_compute_cl_get_rows_f32(
         const struct ggml_tensor * src1,
               struct ggml_tensor * dst){
 
+    GGML_TENSOR_BINARY_OP_LOCALS
+
+    const int64_t nc = ne00;
+    const int64_t nr = ggml_nelements(src1); GGML_UNUSED(nr);
+
+    // assert(ne0  == nc);
+    // assert(ne02 == ne11);
+    // assert(nb00 == sizeof(float));
+    // assert(ggml_nrows(dst) == nr);
+
+    cl_int ret;
+
+    // 创建内存缓冲区
+    size_t x_size;
+    size_t x1_size;
+    size_t y_size;
+    cl_mem input_mem_obj =  ggml_cl_pool_data_malloc(sizeof(float) * ne03 * ne02 * ne01 * ne00, &x_size,src0->data);
+    cl_mem input1_mem_obj = ggml_cl_pool_data_malloc(sizeof(float) * nr, &x1_size, src1->data);
+    cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * ne3 * ne2 * ne1 * ne0, &y_size);
+    // 设置 kernel 参数
+    ret = clSetKernelArg(get_row_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
+    ret = clSetKernelArg(get_row_f32_cl, 1, sizeof(cl_mem), (void *)&input1_mem_obj);
+    ret = clSetKernelArg(get_row_f32_cl, 2, sizeof(cl_mem), (void *)&output_mem_obj);
+    ret = clSetKernelArg(get_row_f32_cl, 3, sizeof(int), &nb1);
+    ret = clSetKernelArg(get_row_f32_cl, 4, sizeof(int), &nb2);
+    ret = clSetKernelArg(get_row_f32_cl, 5, sizeof(int), &nb3);
+    ret = clSetKernelArg(get_row_f32_cl, 6, sizeof(int), &nb01);
+    ret = clSetKernelArg(get_row_f32_cl, 7, sizeof(int), &nb02);
+    ret = clSetKernelArg(get_row_f32_cl, 8, sizeof(int), &nb03);
+    ret = clSetKernelArg(get_row_f32_cl, 9, sizeof(int), &nb10);
+    ret = clSetKernelArg(get_row_f32_cl, 10, sizeof(int), &nb11);
+    ret = clSetKernelArg(get_row_f32_cl, 11, sizeof(int), &nb12);
+    ret = clSetKernelArg(get_row_f32_cl, 12, sizeof(int), &nc);
+
+    // 设置NDRange的大小
+    size_t global_item_size[] = {static_cast<size_t>(ne03), static_cast<size_t>(ne02), 
+                                    static_cast<size_t>(ne01), static_cast<size_t>(ne00)};
+    size_t local_item_size[] = {1, 1, 1, static_cast<size_t>(ne00)}; // 本地工作组大小，可根据实际硬件调整
+
+    // 执行内核
+    ret = clEnqueueNDRangeKernel(queue, get_row_f32_cl, 4, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    clFinish(queue);
+
+    float *d = (float*)((char*)dst->data);
+    // 读取输出数据
+    ret = clEnqueueReadBuffer(queue, output_mem_obj, CL_TRUE, 0, ne0 * ne1 * ne2 * ne3 * sizeof(float), d, 0, NULL, NULL);
+    
+    ggml_cl_pool_free(input_mem_obj, x_size);
+    ggml_cl_pool_free(input1_mem_obj, x1_size);
+    ggml_cl_pool_free(output_mem_obj, y_size);
 }
-
-
-
-
 
 
 void ggml_cl_transform_tensor(void * data, ggml_tensor * tensor) {
