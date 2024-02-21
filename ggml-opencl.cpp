@@ -2907,27 +2907,27 @@ void ggml_compute_cl_add_f32(
     cl_mem input1_mem_obj = ggml_cl_pool_data_malloc(sizeof(float) * nr, &x1_size, src1->data);
     cl_mem output_mem_obj = ggml_cl_pool_malloc(sizeof(float) * ne3 * ne2 * ne1 * ne0, &y_size);
     // 设置 kernel 参数
-    ret = clSetKernelArg(get_row_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
-    ret = clSetKernelArg(get_row_f32_cl, 1, sizeof(cl_mem), (void *)&input1_mem_obj);
-    ret = clSetKernelArg(get_row_f32_cl, 2, sizeof(cl_mem), (void *)&output_mem_obj);
-    ret = clSetKernelArg(get_row_f32_cl, 3, sizeof(int), &ne00);
-    ret = clSetKernelArg(get_row_f32_cl, 4, sizeof(int), &ne01);
-    ret = clSetKernelArg(get_row_f32_cl, 5, sizeof(int), &ne02);
-    ret = clSetKernelArg(get_row_f32_cl, 6, sizeof(int), &ne03);
-    ret = clSetKernelArg(get_row_f32_cl, 7, sizeof(int), &ne10);
-    ret = clSetKernelArg(get_row_f32_cl, 8, sizeof(int), &ne11);
-    ret = clSetKernelArg(get_row_f32_cl, 9, sizeof(int), &ne12);
-    ret = clSetKernelArg(get_row_f32_cl, 10, sizeof(int), &ne13);
-    ret = clSetKernelArg(get_row_f32_cl, 11, sizeof(int), &nb0);
-    ret = clSetKernelArg(get_row_f32_cl, 12, sizeof(int), &nb1);
-    ret = clSetKernelArg(get_row_f32_cl, 13, sizeof(int), &nb2);
-    ret = clSetKernelArg(get_row_f32_cl, 14, sizeof(int), &nb3);
-    ret = clSetKernelArg(get_row_f32_cl, 15, sizeof(int), &nb10);
-    ret = clSetKernelArg(get_row_f32_cl, 16, sizeof(int), &nb11);
-    ret = clSetKernelArg(get_row_f32_cl, 17, sizeof(int), &nb12);
-    ret = clSetKernelArg(get_row_f32_cl, 18, sizeof(int), &nb13);
-    ret = clSetKernelArg(get_row_f32_cl, 19, sizeof(int), &nr);
-    ret = clSetKernelArg(get_row_f32_cl, 20, sizeof(int), &nr0);
+    ret = clSetKernelArg(add_f32_cl, 0, sizeof(cl_mem), (void *)&input_mem_obj);
+    ret = clSetKernelArg(add_f32_cl, 1, sizeof(cl_mem), (void *)&input1_mem_obj);
+    ret = clSetKernelArg(add_f32_cl, 2, sizeof(cl_mem), (void *)&output_mem_obj);
+    ret = clSetKernelArg(add_f32_cl, 3, sizeof(int), &ne00);
+    ret = clSetKernelArg(add_f32_cl, 4, sizeof(int), &ne01);
+    ret = clSetKernelArg(add_f32_cl, 5, sizeof(int), &ne02);
+    ret = clSetKernelArg(add_f32_cl, 6, sizeof(int), &ne03);
+    ret = clSetKernelArg(add_f32_cl, 7, sizeof(int), &ne10);
+    ret = clSetKernelArg(add_f32_cl, 8, sizeof(int), &ne11);
+    ret = clSetKernelArg(add_f32_cl, 9, sizeof(int), &ne12);
+    ret = clSetKernelArg(add_f32_cl, 10, sizeof(int), &ne13);
+    ret = clSetKernelArg(add_f32_cl, 11, sizeof(int), &nb0);
+    ret = clSetKernelArg(add_f32_cl, 12, sizeof(int), &nb1);
+    ret = clSetKernelArg(add_f32_cl, 13, sizeof(int), &nb2);
+    ret = clSetKernelArg(add_f32_cl, 14, sizeof(int), &nb3);
+    ret = clSetKernelArg(add_f32_cl, 15, sizeof(int), &nb10);
+    ret = clSetKernelArg(add_f32_cl, 16, sizeof(int), &nb11);
+    ret = clSetKernelArg(add_f32_cl, 17, sizeof(int), &nb12);
+    ret = clSetKernelArg(add_f32_cl, 18, sizeof(int), &nb13);
+    ret = clSetKernelArg(add_f32_cl, 19, sizeof(int), &nr);
+    ret = clSetKernelArg(add_f32_cl, 20, sizeof(int), &nr0);
 
     // 设置NDRange的大小
     size_t global_item_size[] = {static_cast<size_t>(ne03), static_cast<size_t>(ne02), 
@@ -2935,7 +2935,7 @@ void ggml_compute_cl_add_f32(
     size_t local_item_size[] = {1, 1, 1, static_cast<size_t>(ne00)}; // 本地工作组大小，可根据实际硬件调整
 
     // 执行内核
-    ret = clEnqueueNDRangeKernel(queue, get_row_f32_cl, 4, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    ret = clEnqueueNDRangeKernel(queue, add_f32_cl, 4, NULL, global_item_size, local_item_size, 0, NULL, NULL);
     clFinish(queue);
 
     float *d = (float*)((char*)dst->data);
