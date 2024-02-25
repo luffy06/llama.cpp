@@ -122,6 +122,13 @@ struct gpt_params {
     bool logits_all        = false; // return logits for all tokens in the batch
     bool use_mmap          = true;  // use mmap for faster loads
     bool use_mlock         = false; // use mlock to keep model in memory
+#ifdef PREFETCH
+    uint32_t thread_num       = THREAD_NUM;
+    uint32_t prefetch_offset  = PREFETCH_OFFSET;
+#ifdef MLOCK
+    float lock_size           = LOCK_SIZE;
+#endif
+#endif
     bool numa              = false; // attempt optimizations that help on some NUMA systems
     bool verbose_prompt    = false; // print prompt tokens before generation
     bool infill            = false; // use infill mode

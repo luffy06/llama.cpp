@@ -195,6 +195,11 @@ extern "C" {
         bool vocab_only; // only load the vocabulary, no weights
         bool use_mmap;   // use mmap if possible
         bool use_mlock;  // force system to keep model in RAM
+#ifdef PREFETCH
+        int32_t thread_num;
+        int32_t prefetch_offset;
+        float lock_size;
+#endif
     };
 
     struct llama_context_params {

@@ -3342,7 +3342,7 @@ void ggml_prefetch_tensor(struct ggml_tensor * tensor, bool use_mmap) {
         for (size_t k = 0; k < size; k += BLOCK_SIZE)
             tmp_sum += ((uint8_t *)tensor->data)[k];
 #ifdef DEBUG
-        printf("Prefetch %s: %d bytes from %p sum = %d\n", ggml_get_name(tensor), size, tensor->data, tmp_sum);
+        //printf("Prefetch %s: %d bytes from %p sum = %d\n", ggml_get_name(tensor), size, tensor->data, tmp_sum);
 #endif
     }
 }
