@@ -1181,6 +1181,40 @@ def do_dump_model(model_plus: ModelPlus) -> None:
         print(f"{name}: shape={lazy_tensor.shape} type={lazy_tensor.data_type}; {lazy_tensor.description}")
 
 
+def sort_layers(model, params):
+    assert params.n_layer < 1000, 'too many layers, need to increase the format width'
+    
+    def get_order(x):
+        if 'token_embd' in x:
+            return -1005
+        elif 'output' in x:
+            return 1005
+        elif 'output_norm' in x:
+            return 1006
+        else:
+            digit_idx = -1
+            for i, item in enumerate(x):
+                if np.char.isdigit(item):
+                    digit_idx = i
+            if digit_idx == -1:
+                raise NotImplementedError(f"Unrecognized layer: {'.'.join(x)}")
+            return int(x[digit_idx])
+
+    name_map = {}
+    for name, tensor in model.items():
+        if any(np.char.isdigit(name.split('.'))):
+            name_new = [f'{int(item):03d}' if np.char.isdigit(item) else item for item in name.split('.')]
+            name_new = '.'.join(name_new)
+            name_map[name_new] = name
+        else:
+            name_map[name] = name
+
+    sorted_model = {}
+    for name_new, name_old in sorted(name_map.items(), key=lambda x: get_order(x[0].split('.'))):
+        sorted_model[name_new] = model[name_old]
+    return sorted_model
+
+
 def main(args_in: list[str] | None = None) -> None:
     output_choices = ["f32", "f16"]
     if np.uint32(1) == np.uint32(1).newbyteorder("<"):
@@ -1282,6 +1316,7 @@ def main(args_in: list[str] | None = None) -> None:
     ftype   = pick_output_type(model, args.outtype)
     model   = convert_to_output_type(model, ftype)
     outfile = args.outfile or default_outfile(model_plus.paths, ftype)
+    model   = sort_layers(model, params)
 
     params.ftype = ftype
     print(f"Writing {outfile}, format {ftype}")
