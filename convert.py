@@ -1182,15 +1182,13 @@ def do_dump_model(model_plus: ModelPlus) -> None:
 
 
 def sort_layers(model, params):
-    assert params.n_layer < 1000, 'too many layers, need to increase the format width'
-    
     def get_order(x):
         if 'token_embd' in x:
-            return -1005
+            return -params.n_layer
         elif 'output' in x:
-            return 1005
+            return params.n_layer
         elif 'output_norm' in x:
-            return 1006
+            return params.n_layer + 1
         else:
             digit_idx = -1
             for i, item in enumerate(x):
@@ -1200,18 +1198,9 @@ def sort_layers(model, params):
                 raise NotImplementedError(f"Unrecognized layer: {'.'.join(x)}")
             return int(x[digit_idx])
 
-    name_map = {}
-    for name, tensor in model.items():
-        if any(np.char.isdigit(name.split('.'))):
-            name_new = [f'{int(item):03d}' if np.char.isdigit(item) else item for item in name.split('.')]
-            name_new = '.'.join(name_new)
-            name_map[name_new] = name
-        else:
-            name_map[name] = name
-
     sorted_model = {}
-    for name_new, name_old in sorted(name_map.items(), key=lambda x: get_order(x[0].split('.'))):
-        sorted_model[name_new] = model[name_old]
+    for name in sorted(model.keys(), key=lambda x: get_order(x.split('.'))):
+        sorted_model[name] = model[name]
     return sorted_model
 
 
@@ -1233,7 +1222,8 @@ def main(args_in: list[str] | None = None) -> None:
     parser.add_argument("--concurrency", type=int,               help=f"concurrency used for conversion (default: {DEFAULT_CONCURRENCY})", default = DEFAULT_CONCURRENCY)
     parser.add_argument("--bigendian",   action="store_true",    help="model is executed on big endian machine")
     parser.add_argument("--padvocab", action="store_true", help="add pad tokens when model vocab expects more than tokenizer metadata provides")
-
+    parser.add_argument("--no-sort", action="store_true")
+    
     args = parser.parse_args(args_in)
     if args.awq_path:
         sys.path.insert(1, str(Path(__file__).parent / 'awq-py'))
@@ -1316,7 +1306,10 @@ def main(args_in: list[str] | None = None) -> None:
     ftype   = pick_output_type(model, args.outtype)
     model   = convert_to_output_type(model, ftype)
     outfile = args.outfile or default_outfile(model_plus.paths, ftype)
-    model   = sort_layers(model, params)
+    if not args.no_sort:
+        model   = sort_layers(model, params)
+    else:
+        print("Layers saved in GGUF are not sorted")
 
     params.ftype = ftype
     print(f"Writing {outfile}, format {ftype}")
