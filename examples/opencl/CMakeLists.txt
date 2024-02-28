@@ -1,0 +1,11 @@
+find_package(CLBlast)
+if (CLBlast_FOUND)
+    message(STATUS "CLBlast found")
+
+    set(TEST_TARGET opencl)
+    add_executable(${TEST_TARGET} softmax.cpp)
+    install(TARGETS ${TARGET} RUNTIME)
+    target_link_libraries(${TEST_TARGET} PRIVATE ggml clblast)
+else()
+    message(WARNING "CLBlast not found")
+endif()
