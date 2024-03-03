@@ -864,7 +864,7 @@ def check_vocab_size(params: Params, vocab: Vocab, pad_vocab: bool = False) -> N
 
 class OutputFile:
     def __init__(self, fname_out: Path, endianess:gguf.GGUFEndian = gguf.GGUFEndian.LITTLE) -> None:
-        self.gguf = gguf.GGUFWriter(fname_out, gguf.MODEL_ARCH_NAMES[ARCH], endianess=endianess)
+        self.gguf = gguf.GGUFWriter(fname_out, gguf.MODEL_ARCH_NAMES[ARCH], endianess=endianess, align=512)
 
     def add_meta_arch(self, params: Params) -> None:
         name = "LLaMA"

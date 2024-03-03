@@ -51,12 +51,13 @@ class GGUFWriter:
     def __init__(
         self, path: os.PathLike[str] | str, arch: str, use_temp_file: bool = True,
         endianess: GGUFEndian = GGUFEndian.LITTLE,
+        align: int | None = None,
     ):
         self.fout = open(path, "wb")
         self.arch = arch
         self.endianess = endianess
         self.offset_tensor = 0
-        self.data_alignment = GGUF_DEFAULT_ALIGNMENT
+        self.data_alignment = align if align != None else GGUF_DEFAULT_ALIGNMENT
         self.kv_data = bytearray()
         self.kv_data_count = 0
         self.ti_data = bytearray()
