@@ -93,6 +93,13 @@ float lock_size;
 #endif
 #endif
 
+#ifdef PREREAD
+extern "C" {
+    extern ggml_tallocr_t global_alloc;
+    extern int global_file;
+}
+#endif
+
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif
@@ -770,6 +777,80 @@ struct no_init {
     no_init() { /* do nothing */ }
 };
 
+#ifdef PREREAD
+#include <fcntl.h>
+#include <unistd.h>
+
+struct llama_file {
+    // use file descriptor so we can open the file with O_DIRECT
+    int fd;
+    size_t size;
+
+    llama_file(const char * fname, const char * mode) {
+        fd = open(fname, O_RDONLY); //  | O_DIRECT
+        global_file = fd;
+        if (fd == -1) {
+            throw std::runtime_error(format("failed to open %s: %s", fname, strerror(errno)));
+        }
+        seek(0, SEEK_END);
+        size = tell();
+        seek(0, SEEK_SET);
+    }
+
+    size_t tell() const {
+        off_t ret = lseek(fd, 0, SEEK_CUR);
+        GGML_ASSERT(ret != -1); // this really shouldn't fail
+        return (size_t) ret;
+    }
+
+    void seek(size_t offset, int whence) const {
+        off_t ret = lseek(fd, offset, whence);
+        GGML_ASSERT(ret != -1); // same
+    }
+
+    void read_raw(void * ptr, size_t len) const {
+        if (len == 0) {
+            return;
+        }
+        ssize_t ret = read(fd, ptr, len);
+        if (ret == -1) {
+            throw std::runtime_error(format("read error: %s", strerror(errno)));
+        }
+        if (ret != len) {
+            throw std::runtime_error("unexpectedly reached end of file");
+        }
+    }
+
+    uint32_t read_u32() const {
+        uint32_t ret;
+        read_raw(&ret, sizeof(ret));
+        return ret;
+    }
+
+    void write_raw(const void * ptr, size_t len) const {
+        if (len == 0) {
+            return;
+        }
+        ssize_t ret = write(fd, ptr, len);
+        if (ret == -1) {
+            throw std::runtime_error(format("write error: %s", strerror(errno)));
+        }
+        if (ret != len) {
+            throw std::runtime_error("unexpectedly reached end of file");
+        }
+    }
+
+    void write_u32(std::uint32_t val) const {
+        write_raw(&val, sizeof(val));
+    }
+
+    ~llama_file() {
+        if (fd != -1) {
+            close(fd);
+        }
+    }
+};
+#else
 struct llama_file {
     // use FILE * so we don't have to re-open the file to mmap
     FILE * fp;
@@ -845,6 +926,7 @@ struct llama_file {
         }
     }
 };
+#endif
 
 struct llama_mmap {
     void * addr;
@@ -860,7 +942,11 @@ struct llama_mmap {
 
     llama_mmap(struct llama_file * file, size_t prefetch = (size_t) -1 /* -1 = max value */, bool numa = false) {
         size = file->size;
+#ifdef PREREAD
+        int fd = file->fd;
+#else
         int fd = fileno(file->fp);
+#endif
         int flags = MAP_SHARED;
         // prefetch/readahead impairs performance on NUMA systems
         if (numa) { prefetch = 0; }
@@ -2528,6 +2614,10 @@ struct llama_model_loader {
                     if (ggml_backend_buffer_is_host(cur->buffer)) {
                         file.seek(offs, SEEK_SET);
                         file.read_raw(cur->data, ggml_nbytes(cur));
+                        //printf("name = %s size = %lld offset = %lld \n", ggml_get_name(cur), ggml_nbytes(cur), offs);
+#ifdef DEBUG
+                        printf("name = %s offset = %lld buf = %p size = %lld\n", ggml_get_name(cur), offs, cur->data, ggml_nbytes(cur));
+#endif 
                     } else {
                         read_buf.resize(ggml_nbytes(cur));
                         file.seek(offs, SEEK_SET);
@@ -2589,7 +2679,7 @@ struct llama_model_loader {
                 ggml_prefetch_tensor(cur, use_mmap);
                 ggml_mlock_tensor(cur, use_mmap);
                 size_lock += ggml_nbytes(cur);
-            } else if (i % 10 < precent_lock * 10 && size_lock < lock_byte) {
+            } else if (i % 10 < precent_lock * 10  && size_lock < lock_byte) {
                 ggml_prefetch_tensor(cur, use_mmap);
                 ggml_mlock_tensor(cur, use_mmap);
                 size_lock += ggml_nbytes(cur);
@@ -3904,13 +3994,27 @@ static bool llm_load_tensors(
         } else {
             // allocate only CPU tensors
             model.buf = ggml_backend_buft_alloc_buffer(buft, buf_size);
+#ifdef DEBUG
+            printf("model.buf = %p\n", model.buf);
+#endif
+#ifdef PREREAD
+            global_alloc = ggml_tallocr_new_from_buffer(model.buf);
+#else
             ggml_tallocr_t alloc = ggml_tallocr_new_from_buffer(model.buf);
+#endif
             for (struct ggml_tensor * t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {
                 if (t->backend == GGML_BACKEND_CPU) {
+#ifdef PREREAD
+                    t->is_param = true;
+                    t->off = ml.file_offset(ggml_get_name(t));
+#else
                     ggml_tallocr_alloc(alloc, t);
+#endif
                 }
             }
+#ifndef PREREAD
             ggml_tallocr_free(alloc);
+#endif
         }
     }
 
@@ -3957,9 +4061,11 @@ static bool llm_load_tensors(
         model.tensors_by_name.emplace_back(ggml_get_name(cur), cur);
     }
 
+#ifndef PREREAD
     if (!ml.load_all_data(ctx, progress_callback, progress_callback_user_data, buf_mmap, use_mlock ? &model.mlock_mmap : NULL)) {
         return false;
     }
+#endif
     model.mapping = std::move(ml.mapping);
 
     // loading time will be recalculate after the first eval, so

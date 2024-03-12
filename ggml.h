@@ -173,18 +173,20 @@
 //
 //
 
-#define PREFETCH
+#define PREREAD
+
+//#define PREFETCH
 #ifdef PREFETCH
 #define BLOCK_SIZE 4096
 #define THREAD_NUM 4
-#define PREFETCH_OFFSET 2
+#define PREFETCH_OFFSET 1
 #define PREFETCH_WINDOW (THREAD_NUM * PREFETCH_OFFSET)
 #define atomic_load_prefetch(ptr) __sync_fetch_and_add(ptr, 0)
 #define atomic_store_prefetch(ptr, val) __sync_lock_test_and_set(ptr, val)
 #define atomic_increase_prefetch(ptr) __sync_fetch_and_add(ptr, 1)
 #endif
 
-#define MLOCK
+//#define MLOCK
 #ifdef MLOCK
 #define LOCK_SIZE 1.9
 #define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
@@ -567,7 +569,11 @@ extern "C" {
 
         void * extra; // extra things e.g. for ggml-cuda.cu
 
+#ifdef PREREAD
+        uint64_t off;
+#else
         char padding[8];
+#endif
     };
 
     static const size_t GGML_TENSOR_SIZE = sizeof(struct ggml_tensor);

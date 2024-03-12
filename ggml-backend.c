@@ -448,7 +448,11 @@ static struct ggml_backend_buffer_i cpu_backend_buffer_i_from_ptr = {
     /* .clear           = */ ggml_backend_cpu_buffer_clear,
 };
 
+#ifdef PREREAD
+static const size_t TENSOR_ALIGNMENT = 512; // should be enough for AVX 512
+#else
 static const size_t TENSOR_ALIGNMENT = 64; // should be enough for AVX 512
+#endif
 
 static ggml_backend_buffer_t ggml_backend_cpu_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
     size += TENSOR_ALIGNMENT;   // malloc may return an address that is not aligned

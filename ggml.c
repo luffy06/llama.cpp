@@ -35,6 +35,12 @@ uint16_t prefetch_status = 0;
 uint16_t forward_status = 0;
 #endif
 
+#ifdef PREREAD
+#include "ggml-alloc.h"
+int global_file;
+ggml_tallocr_t global_alloc;
+#endif
+
 #define RECLAM
 
 #if defined(_MSC_VER)
@@ -16591,6 +16597,23 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 GGML_PRINT_DEBUG_5("%s: %d/%d\n", __func__, node_n, cgraph->n_nodes);
 
                 struct ggml_tensor * node = cgraph->nodes[node_n];
+#ifdef PREREAD
+                for (int i = 0; i < GGML_MAX_SRC; i++) {
+                    if (node->src[i] != NULL) {
+                        if (node->src[i]->is_param == 1) {
+                            if (node->src[i]->data == NULL) {
+#ifdef DEBUG
+                                printf("alloc and read node[%d] = %s size = %d\n", node_n, node->name, ggml_nbytes(node->src[i]));
+#endif
+                                ggml_tallocr_alloc(global_alloc, node->src[i]);
+                                pread(global_file, node->src[i]->data, ggml_nbytes(node->src[i]), node->src[i]->off);
+                                //printf("pread node[%d] = %s size = %d offset = %lu\n", node_n, node->src[i]->name, ggml_nbytes(node->src[i]), node->src[i]->off);
+                            }
+                        }
+                    } else
+                        break;
+                }
+#endif
                 const int n_tasks = ggml_get_n_tasks(node, n_threads);
 
                 state->shared->perf_node_start_cycles  = ggml_perf_cycles();
@@ -16619,7 +16642,23 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 } else {
                     break;
                 }
-
+#ifdef PREREAD
+                if (node_n > 100) {
+                struct ggml_tensor * free_node = cgraph->nodes[node_n - 100];
+                for (int i = 0; i < GGML_MAX_SRC; i++) {
+                    if (free_node->src[i] != NULL) {
+                        if (free_node->src[i]->is_param == 1) {
+#ifdef DEBUG
+                            printf("free node[%d] = %s size = %d\n", free_node, free_node->name, ggml_nbytes(free_node->src[i]));
+#endif
+                            ggml_tallocr_free_my_tensor(global_alloc, free_node->src[i]);
+                            free_node->src[i]->data = NULL;
+                        }
+                    } else
+                        break;
+                }
+                }
+#endif
 #ifdef PREFETCH
                 if (atomic_load_prefetch(&forward_status) == 0) {
                     atomic_increase_prefetch(&forward_status);

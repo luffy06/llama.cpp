@@ -119,6 +119,9 @@ void ggml_tallocr_alloc(ggml_tallocr_t alloc, struct ggml_tensor * tensor) {
     }
     struct free_block * block = &alloc->free_blocks[best_fit_block];
     void * addr = block->addr;
+#ifdef DEBUG
+    printf("alloc = %p addr = %p ori_size = %lld size = %lld align = %lld\n", alloc, addr, ggml_nbytes(tensor) ,size, alloc->alignment);
+#endif
     block->addr = (char*)block->addr + size;
     block->size -= size;
     if (block->size == 0) {
@@ -220,6 +223,79 @@ static void ggml_tallocr_free_tensor(ggml_tallocr_t alloc, struct ggml_tensor * 
     alloc->n_free_blocks++;
 }
 
+#ifdef PREREAD
+void ggml_tallocr_free_my_tensor(ggml_tallocr_t alloc, struct ggml_tensor * tensor) {
+    if (ggml_tallocr_is_own(alloc, tensor) == false) {
+        // the tensor was not allocated in this buffer
+        // this can happen because the graph allocator will try to free weights and other tensors from different buffers
+        // the easiest way to deal with this is just to ignore it
+        // AT_PRINTF("ignoring %s (their buffer: %p, our buffer: %p)\n", tensor->name, (void *)tensor->buffer, (void *)alloc->buffer);
+        return;
+    }
+
+    void * ptr = tensor->data;
+
+    size_t size = ggml_backend_buffer_get_alloc_size(alloc->buffer, tensor);
+    size = aligned_offset(NULL, size, alloc->alignment);
+    AT_PRINTF("%s: freeing %s at %p (%zu bytes) - n_free_blocks = %d\n", __func__, tensor->name, ptr, size, alloc->n_free_blocks);
+
+#ifdef GGML_ALLOCATOR_DEBUG
+    remove_allocated_tensor(alloc, tensor);
+#endif
+
+    // see if we can merge with an existing block
+    for (int i = 0; i < alloc->n_free_blocks; i++) {
+        struct free_block * block = &alloc->free_blocks[i];
+        // check if ptr is at the end of the block
+        if ((char*)block->addr + block->size == ptr) {
+            block->size += size;
+            // check if we can merge with the next block
+            if (i < alloc->n_free_blocks - 1 && (char*)block->addr + block->size == alloc->free_blocks[i+1].addr) {
+                block->size += alloc->free_blocks[i+1].size;
+                alloc->n_free_blocks--;
+                for (int j = i+1; j < alloc->n_free_blocks; j++) {
+                    alloc->free_blocks[j] = alloc->free_blocks[j+1];
+                }
+            }
+            //printf("free tensor %s %p alloc->n_free_blocks = %d block->size = %lu\n", tensor->name, tensor->data, alloc->n_free_blocks, block->size);
+            return;
+        }
+        // check if ptr is at the beginning of the block
+        if ((char*)ptr + size == block->addr) {
+            block->addr = ptr;
+            block->size += size;
+            // check if we can merge with the previous block
+            if (i > 0 && (char*)alloc->free_blocks[i-1].addr + alloc->free_blocks[i-1].size == block->addr) {
+                alloc->free_blocks[i-1].size += block->size;
+                alloc->n_free_blocks--;
+                for (int j = i; j < alloc->n_free_blocks; j++) {
+                    alloc->free_blocks[j] = alloc->free_blocks[j+1];
+                }
+            }
+            //printf("free tensor %s %p alloc->n_free_blocks = %d block->size = %lu\n", tensor->name, tensor->data, alloc->n_free_blocks, block->size);
+            return;
+        }
+    }
+    // otherwise, add a new block
+    GGML_ASSERT(alloc->n_free_blocks < MAX_FREE_BLOCKS && "out of free blocks");
+    // insert the new block in the correct position to keep the array sorted by address (to make merging blocks faster)
+    int insert_pos = 0;
+    while (insert_pos < alloc->n_free_blocks && alloc->free_blocks[insert_pos].addr < ptr) {
+        insert_pos++;
+    }
+    // shift all blocks from insert_pos onward to make room for the new block
+    for (int i = alloc->n_free_blocks; i > insert_pos; i--) {
+        alloc->free_blocks[i] = alloc->free_blocks[i-1];
+    }
+    // insert the new block
+    alloc->free_blocks[insert_pos].addr = ptr;
+    alloc->free_blocks[insert_pos].size = size;
+    alloc->n_free_blocks++;
+    //printf("free tensor %s %p alloc->n_free_blocks = %d\n", tensor->name, tensor->data, alloc->n_free_blocks);
+    // free(tensor->data);
+}
+#endif
+
 void ggml_tallocr_reset(ggml_tallocr_t alloc) {
     alloc->n_free_blocks = 1;
     size_t align_offset = aligned_offset(alloc->base, 0, alloc->alignment);
@@ -289,7 +365,11 @@ ggml_tallocr_t ggml_tallocr_new_from_buffer(struct ggml_backend_buffer * buffer)
         /*.buffer        = */ buffer,
         /*.buffer_owned  = */ false,
         /*.base          = */ ggml_backend_buffer_get_base(buffer),
+#ifdef PREREAD
+        /*.alignment     = */ 512, //ggml_backend_buffer_get_alignment(buffer),
+#else
         /*.alignment     = */ ggml_backend_buffer_get_alignment(buffer),
+#endif
         /*.n_free_blocks = */ 0,
         /*.free_blocks   = */ {{0}},
         /*.max_size      = */ 0,
@@ -508,6 +588,9 @@ static void allocate_node(ggml_gallocr_t galloc, struct ggml_tensor * node) {
                     }
                 }
             }
+#ifdef PREREAD
+            if (!node->is_param)
+#endif
             ggml_tallocr_alloc(alloc, node);
         }
     }
