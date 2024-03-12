@@ -174,6 +174,10 @@
 //
 
 #define PREREAD
+#ifdef PREREAD
+#define PREREAD_SIZE 1.9
+#define PREREAD_BYTE (uint64_t)(1.0 * PREREAD_SIZE * 1024 * 1024 * 1024)
+#endif
 
 //#define PREFETCH
 #ifdef PREFETCH

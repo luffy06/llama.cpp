@@ -846,7 +846,7 @@ struct llama_file {
 
     ~llama_file() {
         if (fd != -1) {
-            close(fd);
+        //    close(fd);
         }
     }
 };
@@ -3993,13 +3993,17 @@ static bool llm_load_tensors(
             buf_mmap = model.buf;
         } else {
             // allocate only CPU tensors
-            model.buf = ggml_backend_buft_alloc_buffer(buft, buf_size);
 #ifdef DEBUG
             printf("model.buf = %p\n", model.buf);
 #endif
 #ifdef PREREAD
+            float preread_size = PREREAD_SIZE;
+            size_t preread_byte = (size_t)((double)1.0 * preread_size * 1024 * 1024 * 1024);
+            model.buf = ggml_backend_buft_alloc_buffer(buft, preread_byte);
+            printf("model.buf = %p buf_size = %llu %3llfGB\n", model.buf, preread_byte, preread_byte / 1024.0 / 1024.0 / 1024.0);
             global_alloc = ggml_tallocr_new_from_buffer(model.buf);
 #else
+            model.buf = ggml_backend_buft_alloc_buffer(buft, buf_size);
             ggml_tallocr_t alloc = ggml_tallocr_new_from_buffer(model.buf);
 #endif
             for (struct ggml_tensor * t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {

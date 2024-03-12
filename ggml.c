@@ -16606,8 +16606,9 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                                 printf("alloc and read node[%d] = %s size = %d\n", node_n, node->name, ggml_nbytes(node->src[i]));
 #endif
                                 ggml_tallocr_alloc(global_alloc, node->src[i]);
-                                pread(global_file, node->src[i]->data, ggml_nbytes(node->src[i]), node->src[i]->off);
-                                //printf("pread node[%d] = %s size = %d offset = %lu\n", node_n, node->src[i]->name, ggml_nbytes(node->src[i]), node->src[i]->off);
+                                int ret = pread(global_file, node->src[i]->data, ggml_nbytes(node->src[i]), node->src[i]->off);
+                                if (ret == -1)
+                                printf("pread fd = %d node[%d] = %s size = %d offset = %lu ret = %d errno = %d\n", global_file, node_n, node->src[i]->name, ggml_nbytes(node->src[i]), node->src[i]->off, ret, errno);
                             }
                         }
                     } else
@@ -16643,8 +16644,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                     break;
                 }
 #ifdef PREREAD
-                if (node_n > 100) {
-                struct ggml_tensor * free_node = cgraph->nodes[node_n - 100];
+                struct ggml_tensor * free_node = cgraph->nodes[node_n];
                 for (int i = 0; i < GGML_MAX_SRC; i++) {
                     if (free_node->src[i] != NULL) {
                         if (free_node->src[i]->is_param == 1) {
@@ -16656,7 +16656,6 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                         }
                     } else
                         break;
-                }
                 }
 #endif
 #ifdef PREFETCH
