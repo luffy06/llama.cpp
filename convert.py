@@ -863,8 +863,8 @@ def check_vocab_size(params: Params, vocab: Vocab, pad_vocab: bool = False) -> N
 
 
 class OutputFile:
-    def __init__(self, fname_out: Path, endianess:gguf.GGUFEndian = gguf.GGUFEndian.LITTLE) -> None:
-        self.gguf = gguf.GGUFWriter(fname_out, gguf.MODEL_ARCH_NAMES[ARCH], endianess=endianess, align=512)
+    def __init__(self, fname_out: Path, endianess:gguf.GGUFEndian = gguf.GGUFEndian.LITTLE, align=32) -> None:
+        self.gguf = gguf.GGUFWriter(fname_out, gguf.MODEL_ARCH_NAMES[ARCH], endianess=endianess, align=align)
 
     def add_meta_arch(self, params: Params) -> None:
         name = "LLaMA"
@@ -986,10 +986,11 @@ class OutputFile:
         concurrency: int = DEFAULT_CONCURRENCY,
         endianess: gguf.GGUFEndian = gguf.GGUFEndian.LITTLE,
         pad_vocab: bool = False,
+        align: int = 32,
     ) -> None:
         check_vocab_size(params, vocab, pad_vocab = pad_vocab)
 
-        of = OutputFile(fname_out, endianess=endianess)
+        of = OutputFile(fname_out, endianess=endianess, align=align)
 
         # meta data
         of.add_meta_arch(params)
@@ -1223,6 +1224,7 @@ def main(args_in: list[str] | None = None) -> None:
     parser.add_argument("--bigendian",   action="store_true",    help="model is executed on big endian machine")
     parser.add_argument("--padvocab", action="store_true", help="add pad tokens when model vocab expects more than tokenizer metadata provides")
     parser.add_argument("--no-sort", action="store_true")
+    parser.add_argument("--align", type=int, default=32, help="alignment for GGUF file (default: 32)")
     
     args = parser.parse_args(args_in)
     if args.awq_path:
@@ -1315,7 +1317,8 @@ def main(args_in: list[str] | None = None) -> None:
     print(f"Writing {outfile}, format {ftype}")
 
     OutputFile.write_all(outfile, ftype, params, model, vocab, special_vocab,
-                         concurrency = args.concurrency, endianess = endianess, pad_vocab = args.padvocab)
+                         concurrency = args.concurrency, endianess = endianess, 
+                         pad_vocab = args.padvocab, align = args.align)
     print(f"Wrote {outfile}")
 
 
