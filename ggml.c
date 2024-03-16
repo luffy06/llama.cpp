@@ -566,7 +566,7 @@ static const size_t CACHE_LINE_SIZE_F32 = CACHE_LINE_SIZE/sizeof(float);
 static void ggml_vec_dot_f32(const int n, float * restrict s, const float * restrict x, const float * restrict y);
 static void ggml_vec_dot_f16(const int n, float * restrict s, ggml_fp16_t * restrict x, ggml_fp16_t * restrict y);
 
-static const ggml_type_traits_t type_traits[GGML_TYPE_COUNT] = {
+const ggml_type_traits_t type_traits[GGML_TYPE_COUNT] = {
     [GGML_TYPE_I8] = {
         .type_name                = "i8",
         .blck_size                = 1,
@@ -7115,28 +7115,28 @@ static void ggml_compute_forward_dup(
         const struct ggml_tensor * src0,
         struct ggml_tensor * dst) {
     if (ggml_is_contiguous(src0) && ggml_is_contiguous(dst) && src0->type == dst->type) {
-        #if defined(GGML_USE_CLBLAST)
-            ggml_compute_cl_dup_same_cont(params, src0, dst);
-            return;
-        #endif
+        // #if defined(GGML_USE_CLBLAST)
+        //     ggml_compute_cl_dup_same_cont(params, src0, dst);
+        //     return;
+        // #endif
         ggml_compute_forward_dup_same_cont(params, src0, dst);
         return;
     }
     switch (src0->type) {
         case GGML_TYPE_F16:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_dup_f16(params, src0, dst);
-                    return;
-                 #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_dup_f16(params, src0, dst);
+                //     return;
+                //  #endif
                 ggml_compute_forward_dup_f16(params, src0, dst);
             } break;
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_dup_f32(params, src0, dst);
-                    return;
-                 #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_dup_f32(params, src0, dst);
+                //     return;
+                //  #endif
                 ggml_compute_forward_dup_f32(params, src0, dst);
             } break;
         default:
@@ -7169,10 +7169,10 @@ static void ggml_compute_forward_add_f32(
     GGML_ASSERT( nb0 == sizeof(float));
     GGML_ASSERT(nb00 == sizeof(float));
 
-    #if defined(GGML_USE_CLBLAST)
-        ggml_compute_cl_add_f32(params, src0, src1, dst);
-        return;
-    #endif  
+    // #if defined(GGML_USE_CLBLAST)
+    //     ggml_compute_cl_add_f32(params, src0, src1, dst);
+    //     return;
+    // #endif  
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -7261,10 +7261,10 @@ static void ggml_compute_forward_add_f16_f32(
 
     GGML_ASSERT(nb00 == sizeof(ggml_fp16_t));
 
-    #if defined(GGML_USE_CLBLAST)
-        ggml_compute_cl_add_f16_f32(params, src0, src1, dst);
-        return;
-    #endif 
+    // #if defined(GGML_USE_CLBLAST)
+    //     ggml_compute_cl_add_f16_f32(params, src0, src1, dst);
+    //     return;
+    // #endif 
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -7337,10 +7337,10 @@ static void ggml_compute_forward_add_f16_f16(
     GGML_ASSERT( nb0 == sizeof(ggml_fp16_t));
     GGML_ASSERT(nb00 == sizeof(ggml_fp16_t));
 
-    #if defined(GGML_USE_CLBLAST)
-        ggml_compute_cl_add_f16_f16(params, src0, src1, dst);
-        return;
-    #endif
+    // #if defined(GGML_USE_CLBLAST)
+    //     ggml_compute_cl_add_f16_f16(params, src0, src1, dst);
+    //     return;
+    // #endif
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -7406,10 +7406,10 @@ static void ggml_compute_forward_add_q_f32(
     GGML_ASSERT(ggml_is_quantized(src0->type));
     GGML_ASSERT(src1->type == GGML_TYPE_F32);
 
-    #if defined(GGML_USE_CLBLAST)
-        ggml_compute_cl_add_q_f32(params, src0, src1, dst);
-        return;
-    #endif 
+    // #if defined(GGML_USE_CLBLAST)
+    //     ggml_compute_cl_add_q_f32(params, src0, src1, dst);
+    //     return;
+    // #endif 
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -7966,16 +7966,17 @@ static void ggml_compute_forward_mul_f32(
     const int ith = params->ith;
     const int nth = params->nth;
 
-#ifdef GGML_USE_CLBLAST
-    if (src1->backend == GGML_BACKEND_GPU) {
-        // TODO: OpenCL kernel support full broadcast
-        GGML_ASSERT(ggml_can_repeat_rows(src1, src0));
-        if (ith == 0) {
-            ggml_cl_mul(src0, src1, dst);
-        }
-        return;
-    }
-#endif
+// #ifdef GGML_USE_CLBLAST
+//     if (src1->backend == GGML_BACKEND_GPU) {
+//         // TODO: OpenCL kernel support full broadcast
+//         // printf("mul in gpu\n");
+//         GGML_ASSERT(ggml_can_repeat_rows(src1, src0));
+//         if (ith == 0) {
+//             ggml_cl_mul(src0, src1, dst);
+//         }
+//         return;
+//     }
+// #endif
 
     const int64_t nr = ggml_nrows(src0);
 
@@ -8798,10 +8799,10 @@ static void ggml_compute_forward_abs(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_abs_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_abs_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_abs_f32(params, src0, dst);
             } break;
         default:
@@ -8844,10 +8845,10 @@ static void ggml_compute_forward_sgn(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_sgn_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_sgn_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_sgn_f32(params, src0, dst);
             } break;
         default:
@@ -8890,10 +8891,10 @@ static void ggml_compute_forward_neg(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_neg_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_neg_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_neg_f32(params, src0, dst);
             } break;
         default:
@@ -8936,10 +8937,10 @@ static void ggml_compute_forward_step(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_step_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_step_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_step_f32(params, src0, dst);
             } break;
         default:
@@ -8982,10 +8983,10 @@ static void ggml_compute_forward_tanh(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_tanh_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_tanh_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_tanh_f32(params, src0, dst);
             } break;
         default:
@@ -9028,10 +9029,10 @@ static void ggml_compute_forward_elu(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_elu_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_elu_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_elu_f32(params, src0, dst);
             } break;
         default:
@@ -9074,10 +9075,10 @@ static void ggml_compute_forward_relu(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_relu_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_relu_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_relu_f32(params, src0, dst);
             } break;
         default:
@@ -9137,10 +9138,10 @@ static void ggml_compute_forward_gelu(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                 #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_gelu_f32(params, src0, dst);
-                    return;
-                #endif
+                //  #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_gelu_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_gelu_f32(params, src0, dst);
             } break;
         default:
@@ -9200,10 +9201,10 @@ static void ggml_compute_forward_gelu_quick(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_gelu_quick_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_gelu_quick_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_gelu_quick_f32(params, src0, dst);
             } break;
         default:
@@ -9263,10 +9264,10 @@ static void ggml_compute_forward_silu(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_silu_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_silu_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_silu_f32(params, src0, dst);
             } break;
         default:
@@ -9514,10 +9515,10 @@ static void ggml_compute_forward_rms_norm(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {   
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_cl_rms_norm_f32(params, src0, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_cl_rms_norm_f32(params, src0, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_rms_norm_f32(params, src0, dst);
             } break;
         default:
@@ -9837,7 +9838,7 @@ static void ggml_compute_forward_mul_mat(
     GGML_TENSOR_BINARY_OP_LOCALS
 
     const int ith = params->ith;
-    const int nth = params->nth;
+    int nth = params->nth;
 
     const enum ggml_type type = src0->type;
 
@@ -9869,14 +9870,16 @@ static void ggml_compute_forward_mul_mat(
     // nb01 >= nb00 - src0 is not transposed
     //   compute by src0 rows
 
-#if defined(GGML_USE_CLBLAST)
-    if (ggml_cl_can_mul_mat(src0, src1, dst)) {
-        if (params->ith == 0 && params->type == GGML_TASK_COMPUTE) {
-            ggml_cl_mul_mat(src0, src1, dst, params->wdata, params->wsize);
-        }
-        return;
-    }
-#endif
+// #if defined(GGML_USE_CLBLAST)
+//     if (ggml_cl_can_mul_mat(src0, src1, dst)) {
+//         if (params->ith == 0 && params->type == GGML_TASK_COMPUTE) {
+//             // printf("mat mul in gpu\n");
+//             ggml_cl_mul_mat(src0, src1, dst, params->wdata, params->wsize);
+//         }
+//         return;
+//     }
+// #endif
+
 
 #if defined(GGML_USE_ACCELERATE) || defined(GGML_USE_OPENBLAS)
     if (ggml_compute_forward_mul_mat_use_blas(src0, src1, dst)) {
@@ -9955,13 +9958,26 @@ static void ggml_compute_forward_mul_mat(
         return;
     }
 
+    bool gpu = false;
+    #if defined(GGML_USE_CLBLAST)
+        if (ggml_cl_can_mul_mat(src0, src1, dst)) {
+            gpu = true;
+            if (params->ith == 0 && params->type == GGML_TASK_COMPUTE) {
+                ggml_cl_mul_mat(src0, src1, dst, params->wdata, params->wsize);
+                return;
+            }
+        }
+    #endif
+
     const void * wdata    = (src1->type == vec_dot_type) ? src1->data : params->wdata;
     const size_t row_size = ggml_row_size(vec_dot_type, ne10);
 
-    const int64_t nr0 = ne01;          // src0 rows
+    int64_t nr0 = ne01;          // src0 rows
+    if (gpu) {
+        nr0 = ne01 - 4*ne01/7;
+        nth -= 1;
+    }
     const int64_t nr1 = ne1*ne12*ne13; // src1 rows
-
-    //printf("nr0 = %lld, nr1 = %lld\n", nr0, nr1);
 
     // distribute the thread work across the inner or outer loop based on which one is larger
 
@@ -9980,8 +9996,6 @@ static void ggml_compute_forward_mul_mat(
     const int64_t ir110 = dr1*ith1;
     const int64_t ir111 = MIN(ir110 + dr1, nr1);
 
-    //printf("ir010 = %6lld, ir011 = %6lld, ir110 = %6lld, ir111 = %6lld\n", ir010, ir011, ir110, ir111);
-
     // threads with no work simply yield (not sure if it helps)
     if (ir010 >= ir011 || ir110 >= ir111) {
         sched_yield();
@@ -9997,7 +10011,6 @@ static void ggml_compute_forward_mul_mat(
 
     // attempt to reduce false-sharing (does not seem to make a difference)
     float tmp[16];
-
     for (int64_t iir1 = ir110; iir1 < ir111; iir1 += blck_1) {
         for (int64_t iir0 = ir010; iir0 < ir011; iir0 += blck_0) {
             for (int64_t ir1 = iir1; ir1 < iir1 + blck_1 && ir1 < ir111; ++ir1) {
@@ -10013,7 +10026,10 @@ static void ggml_compute_forward_mul_mat(
                 const int64_t i2 = i12;
                 const int64_t i3 = i13;
 
-                const char * src0_row = (const char *) src0->data + (0 + i02*nb02 + i03*nb03);
+                char * src0_row = (const char *) src0->data + (0 + i02*nb02 + i03*nb03);
+                if (gpu) {
+                    src0_row += (nb01 * 4 * ne01 / 7);
+                }
 
                 // desc: when src1 is not a contiguous memory block we have to calculate the offset using the strides
                 //       if it is, then we have either copied the data to params->wdata and made it contiguous or we are using
@@ -10916,26 +10932,26 @@ static void ggml_compute_forward_get_rows(
         case GGML_TYPE_Q5_K:
         case GGML_TYPE_Q6_K:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_get_rows_q(params, src0, src1, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_get_rows_q(params, src0, src1, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_get_rows_q(params, src0, src1, dst);
             } break;
         case GGML_TYPE_F16:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_get_rows_f16(params, src0, src1, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_get_rows_f16(params, src0, src1, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_get_rows_f16(params, src0, src1, dst);
             } break;
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_compute_cl_get_rows_f32(params, src0, src1, dst);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_compute_cl_get_rows_f32(params, src0, src1, dst);
+                //     return;
+                // #endif
                 ggml_compute_forward_get_rows_f32(params, src0, src1, dst);
             } break;
         default:
@@ -11241,10 +11257,10 @@ static void ggml_compute_forward_soft_max_f32(
     const int nc = src0->ne[0];
     const int nr = ggml_nrows(src0);
 
-    #if defined(GGML_USE_CLBLAST)
-        ggml_cl_softmax(params,src0,src1,dst);
-        return;
-    #endif
+    // #if defined(GGML_USE_CLBLAST)
+    //     ggml_cl_softmax(params,src0,src1,dst);
+    //     return;
+    // #endif
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -12041,18 +12057,18 @@ static void ggml_compute_forward_rope(
     switch (src0->type) {
         case GGML_TYPE_F16:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_cl_rope_f16(params, src0, src1, dst, true);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_cl_rope_f16(params, src0, src1, dst, true);
+                //     return;
+                // #endif
                 ggml_compute_forward_rope_f16(params, src0, src1, dst, true);
             } break;
         case GGML_TYPE_F32:
             {
-                #if defined(GGML_USE_CLBLAST)
-                    ggml_cl_rope_f32(params, src0, src1, dst, true);
-                    return;
-                #endif
+                // #if defined(GGML_USE_CLBLAST)
+                //     ggml_cl_rope_f32(params, src0, src1, dst, true);
+                //     return;
+                // #endif
                 ggml_compute_forward_rope_f32(params, src0, src1, dst, true);
             } break;
         default:
@@ -14534,8 +14550,13 @@ static void ggml_compute_forward_cross_entropy_loss_back(
 
 /////////////////////////////////
 
+FILE *file;
+
 static void ggml_compute_forward(struct ggml_compute_params * params, struct ggml_tensor * tensor) {
     GGML_ASSERT(params);
+    // if (NULL == file) {
+    //     file = fopen("op_time.txt", "w");
+    // }
 
     if (tensor->op == GGML_OP_NONE) {
         return;
@@ -14644,6 +14665,12 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
         case GGML_OP_MUL_MAT:
             {
                 ggml_compute_forward_mul_mat(params, tensor->src[0], tensor->src[1], tensor);
+                // printf("\t%s: Tensor [%s], OP [%s],  [%d %d %d %d], Time [%.3f] ms\n", __func__, ggml_op_string(tensor->op), tensor->name, 
+                // tensor->src[0]->ne[0], tensor->src[0]->ne[1], tensor->src[1]->ne[0], tensor->src[1]->ne[1], 
+                // (ggml_time_us() - start_us) / 1000.0);
+                // fprintf(file, "\t%d %s: Tensor [%s], OP [%s],  [%d %d %d %d], Time [%.3f] ms\n", params->ith, __func__, ggml_op_string(tensor->op), tensor->name, 
+                // tensor->src[0]->ne[0], tensor->src[0]->ne[1], tensor->src[1]->ne[0], tensor->src[1]->ne[1], 
+                // (ggml_time_us() - start_us) / 1000.0);
             } break;
         case GGML_OP_MUL_MAT_ID:
             {
@@ -14873,7 +14900,8 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             } break;
     }
 
-    printf("\t%s: Tensor [%s], OP [%s], Time [%.3f] ms\n", __func__, ggml_op_string(tensor->op), tensor->name, (ggml_time_us() - start_us) / 1000.0);
+    // fprintf(file, "\t%s: Tensor [%s], OP [%s], Time [%.3f] ms\n", __func__, ggml_op_string(tensor->op), tensor->name, (ggml_time_us() - start_us) / 1000.0);
+    // printf("\t%s: Tensor [%s], OP [%s], Time [%.3f] ms\n", __func__, ggml_op_string(tensor->op), tensor->name, (ggml_time_us() - start_us) / 1000.0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -16425,12 +16453,12 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
 
 #if defined(GGML_USE_CUBLAS)
                 if (ggml_cuda_can_mul_mat(node->src[0], node->src[1], node)) {
-                    n_tasks = 1; // TODO: this actually is doing nothing
+                    n_tasks = n_threads; // TODO: this actually is doing nothing
                                  //       the threads are still spinning
                 }
 #elif defined(GGML_USE_CLBLAST)
                 if (ggml_cl_can_mul_mat(node->src[0], node->src[1], node)) {
-                    n_tasks = 1; // TODO: this actually is doing nothing
+                    n_tasks = n_threads; // TODO: this actually is doing nothing
                                  //       the threads are still spinning
                 }
 #endif
@@ -16606,7 +16634,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
     set_numa_thread_affinity(state->ith, n_threads);
 
     int node_n = -1;
-
+    int64_t t1 = ggml_time_us();
     while (true) {
         if (cplan->abort_callback && cplan->abort_callback(cplan->abort_callback_data)) {
             state->shared->node_n += 1;
@@ -16633,10 +16661,12 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 ggml_graph_compute_perf_stats_node(node, state->shared);
             }
 
+            int64_t t3 = ggml_time_us();
+            int64_t times[80] = {0};
             // distribute new work or execute it direct if 1T
             while (++node_n < cgraph->n_nodes) {
                 GGML_PRINT_DEBUG_5("%s: %d/%d\n", __func__, node_n, cgraph->n_nodes);
-
+                int64_t t5 = ggml_time_us();
                 struct ggml_tensor * node = cgraph->nodes[node_n];
                 const int n_tasks = ggml_get_n_tasks(node, n_threads);
 
@@ -16666,11 +16696,24 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 } else {
                     break;
                 }
-
+                int64_t t6 = ggml_time_us();
+                times[node->op] += (t6-t5);
                 if (cplan->abort_callback && cplan->abort_callback(cplan->abort_callback_data)) {
                     break;
                 }
+
+                
             }
+
+            int64_t t4 = ggml_time_us();
+            // printf("all mat mul is %ld\n", mul_mat_time_all);
+            // printf("all nodes time is %ld\n", t4-t3);
+            // for (int i=0; i<80; i++) {
+            //     printf("%d->%ld   ", i, times[i]);
+            //     if (i%5 == 0) {
+            //         printf("\n");
+            //     }
+            // }
 
             atomic_store(&state->shared->n_active, n_threads);
             atomic_store(&state->shared->node_n,   node_n);
@@ -16710,6 +16753,9 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
             ggml_compute_forward(&params, node);
         }
     }
+
+    int64_t t2 = ggml_time_us();
+    printf("%s: time is %ld\n", __func__, t2-t1);
 
     return GGML_EXIT_SUCCESS;
 }
@@ -16908,7 +16954,7 @@ int ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan) {
         }
     }
 
-    const int n_threads = 1; // cplan->n_threads;
+    const int n_threads = cplan->n_threads; // cplan->n_threads;
 
     struct ggml_compute_state_shared state_shared = {
         /*.cgraph                  =*/ cgraph,

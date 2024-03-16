@@ -3,6 +3,7 @@
 #include "llama.h"
 
 #include "unicode.h"
+#include <iostream>
 
 #include "ggml.h"
 #include "ggml-alloc.h"
@@ -2430,6 +2431,7 @@ struct llama_model_loader {
         size_t mmap_first = -1;
         size_t mmap_last  = 0;
 
+        // std::cout << "before transfer" << std::endl;
         for (int i = 0; i < gguf_get_n_tensors(ctx_gguf); i++) {
             struct ggml_tensor * cur = ggml_get_tensor(ctx, gguf_get_tensor_name(ctx_gguf, i));
             GGML_ASSERT(cur); // unused tensors should have been caught by load_data already
@@ -2443,6 +2445,7 @@ struct llama_model_loader {
             const size_t offs = file_offset(ggml_get_name(cur));
 
             if (!legacy_offload || cur->backend == GGML_BACKEND_CPU) {
+                std::cout << "tensor: " << cur->name << std::endl;
                 if (use_mmap && mapping) {
                     if (buf_mmap) {
                         ggml_backend_tensor_alloc(buf_mmap, cur, (uint8_t *) mapping->addr + offs);
@@ -2482,7 +2485,8 @@ struct llama_model_loader {
                 ggml_cuda_transform_tensor(data, cur);
 #elif defined(GGML_USE_CLBLAST)
                 GGML_ASSERT(cur->backend == GGML_BACKEND_GPU);
-                ggml_cl_transform_tensor(data, cur);
+                // ggml_cl_transform_tensor(data, cur);
+                cur->data = data;
 #else
                 GGML_ASSERT(!"GPU tensor without a GPU backend");
                 GGML_UNUSED(data);
@@ -2492,6 +2496,7 @@ struct llama_model_loader {
             size_done += ggml_nbytes(cur);
         }
 
+        // std::cout << "after transfer" << std::endl;
         // unmap offloaded tensors and metadata
         if (use_mmap && mapping) {
             mapping->unmap_fragment(0, mmap_first);
@@ -3149,7 +3154,7 @@ static bool llm_load_tensors(
         const int64_t n_embd_gqa = hparams.n_embd_gqa();
         const int64_t n_layer    = hparams.n_layer;
         const int64_t n_vocab    = hparams.n_vocab;
-
+        // printf("n_layer is %ld, n_gpu_layers is %ld\n", n_layer, n_gpu_layers);
         const auto tn = LLM_TN(model.arch);
         switch (model.arch) {
             case LLM_ARCH_LLAMA:
@@ -4500,6 +4505,7 @@ struct llm_build_context {
 
         ggml_build_forward_expand(gf, cur);
 
+        /*
         LLAMA_LOG_INFO("{\n\t%s: Start to print tensors in the computation graph\n", __func__);
         for (int i = 0; i < gf->n_nodes; ++ i) {
             ggml_tensor * t = gf->nodes[i];
@@ -4542,7 +4548,7 @@ struct llm_build_context {
             LLAMA_LOG_INFO("]\n");
         }
         LLAMA_LOG_INFO("\t%s: Finish printing tensors in the computation graph\n}\n", __func__);
-
+        */
         return gf;
     }
 
@@ -6480,7 +6486,7 @@ static int llama_decode_internal(
     res->backend = GGML_BACKEND_CPU;
 #endif
 
-    LLAMA_LOG_INFO("%s: graph build time: %.3f ms (%d nodes, %d leafs)\n", __func__, (ggml_time_us() - t_start_us)/1000.0, gf->n_nodes, gf->n_leafs);
+    // LLAMA_LOG_INFO("%s: graph build time: %.3f ms (%d nodes, %d leafs)\n", __func__, (ggml_time_us() - t_start_us)/1000.0, gf->n_nodes, gf->n_leafs);
 
     // for big prompts, if BLAS is enabled, it is better to use only one thread
     // otherwise, the threads are spin-lock waiting for the BLAS calls and are degrading the performance
@@ -6510,7 +6516,11 @@ static int llama_decode_internal(
     if (ggml_backend_is_cpu(lctx.backend)) {
         ggml_backend_cpu_set_n_threads(lctx.backend, n_threads);
     }
+    int64_t start = ggml_time_us();
     ggml_backend_graph_compute(lctx.backend, gf);
+    int64_t end = ggml_time_us();
+    // printf("=======>before graph compute time is %ld\n", start-t_start_us);
+    printf("=======>graph compute time is %ld\n", end-start);
 
 #ifdef GGML_USE_MPI
     ggml_mpi_graph_compute_post(lctx.ctx_mpi, gf, n_layer);
@@ -6583,6 +6593,9 @@ static int llama_decode_internal(
 #endif
         }
     }
+
+    int64_t tt = ggml_time_us();
+    // printf("============>after graph compute %ld\n", tt-end);
 
     // extract embeddings
     if (!lctx.embedding.empty()) {
