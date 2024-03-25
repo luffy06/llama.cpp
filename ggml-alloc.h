@@ -65,7 +65,9 @@ GGML_API void   ggml_tallocr_alloc      (ggml_tallocr_t talloc, struct ggml_tens
 GGML_API size_t ggml_tallocr_max_size   (ggml_tallocr_t talloc);
 
 #ifdef PREREAD
-GGML_API void ggml_tallocr_free_my_tensor(ggml_tallocr_t alloc, struct ggml_tensor * tensor);
+GGML_API void   ggml_tallocr_free_my_tensor(ggml_tallocr_t alloc, struct ggml_tensor * tensor);
+GGML_API void   ggml_tallocr_set_available (ggml_tallocr_t alloc, size_t available);
+GGML_API size_t ggml_tallocr_get_available (ggml_tallocr_t alloc);
 #endif
 
 // Graph allocator

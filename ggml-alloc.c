@@ -39,6 +39,9 @@ struct ggml_tallocr {
     struct free_block free_blocks[MAX_FREE_BLOCKS];
 
     size_t max_size;
+#ifdef PREREAD
+    size_t available_size;
+#endif
 
     bool measure;
 
@@ -85,7 +88,9 @@ void ggml_tallocr_alloc(ggml_tallocr_t alloc, struct ggml_tensor * tensor) {
 
     size_t size = ggml_backend_buffer_get_alloc_size(alloc->buffer, tensor);
     size = aligned_offset(NULL, size, alloc->alignment);
-
+#ifdef PREREAD
+    alloc->available_size -= size;
+#endif
     AT_PRINTF("%s: allocating %s (%zu bytes) - ", __func__, tensor->name, size);
 
     size_t max_avail = 0;
@@ -111,16 +116,20 @@ void ggml_tallocr_alloc(ggml_tallocr_t alloc, struct ggml_tensor * tensor) {
         if (block->size >= size) {
             best_fit_block = alloc->n_free_blocks - 1;
         } else {
+#ifdef ASYNC_READ
+            return;
+#else
             fprintf(stderr, "%s: not enough space in the buffer (needed %zu, largest block available %zu)\n",
                     __func__, size, max_avail);
             GGML_ASSERT(!"not enough space in the buffer");
             return;
+#endif
         }
     }
     struct free_block * block = &alloc->free_blocks[best_fit_block];
     void * addr = block->addr;
 #ifdef DEBUG
-    printf("alloc = %p addr = %p ori_size = %lld size = %lld align = %lld\n", alloc, addr, ggml_nbytes(tensor) ,size, alloc->alignment);
+    //printf("alloc = %p addr = %p ori_size = %lld size = %lld align = %lld\n", alloc, addr, ggml_nbytes(tensor) ,size, alloc->alignment);
 #endif
     block->addr = (char*)block->addr + size;
     block->size -= size;
@@ -224,6 +233,15 @@ static void ggml_tallocr_free_tensor(ggml_tallocr_t alloc, struct ggml_tensor * 
 }
 
 #ifdef PREREAD
+
+GGML_API void ggml_tallocr_set_available(ggml_tallocr_t alloc, uint64_t available) {
+    alloc->available_size = available;
+}
+
+GGML_API size_t ggml_tallocr_get_available (ggml_tallocr_t alloc) {
+    return alloc->available_size;
+}
+
 void ggml_tallocr_free_my_tensor(ggml_tallocr_t alloc, struct ggml_tensor * tensor) {
     if (ggml_tallocr_is_own(alloc, tensor) == false) {
         // the tensor was not allocated in this buffer
@@ -237,6 +255,7 @@ void ggml_tallocr_free_my_tensor(ggml_tallocr_t alloc, struct ggml_tensor * tens
 
     size_t size = ggml_backend_buffer_get_alloc_size(alloc->buffer, tensor);
     size = aligned_offset(NULL, size, alloc->alignment);
+    alloc->available_size += size;
     AT_PRINTF("%s: freeing %s at %p (%zu bytes) - n_free_blocks = %d\n", __func__, tensor->name, ptr, size, alloc->n_free_blocks);
 
 #ifdef GGML_ALLOCATOR_DEBUG
@@ -321,6 +340,9 @@ ggml_tallocr_t ggml_tallocr_new(void * data, size_t size, size_t alignment) {
         /*.n_free_blocks = */ 0,
         /*.free_blocks   = */ {{0}},
         /*.max_size      = */ 0,
+#ifdef PREREAD
+        /* available     = */ 0,
+#endif
         /*.measure       = */ false,
 #ifdef GGML_ALLOCATOR_DEBUG
         /*.allocated_tensors = */ {0},
@@ -373,6 +395,9 @@ ggml_tallocr_t ggml_tallocr_new_from_buffer(struct ggml_backend_buffer * buffer)
         /*.n_free_blocks = */ 0,
         /*.free_blocks   = */ {{0}},
         /*.max_size      = */ 0,
+#ifdef PREREAD
+        /* available     = */ 0,
+#endif
         /*.measure       = */ false,
 #ifdef GGML_ALLOCATOR_DEBUG
         /*.allocated_tensors = */ {0},

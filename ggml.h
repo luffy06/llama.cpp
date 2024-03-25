@@ -173,29 +173,33 @@
 //
 //
 
+#define PREFETCH
+#ifdef PREFETCH
+
+#define MLOCK
 #define PREREAD
+#define ASYNC_READ
+
 #ifdef PREREAD
-#define PREREAD_SIZE 1.9
+#define PREREAD_SIZE 1.7
 #define PREREAD_BYTE (uint64_t)(1.0 * PREREAD_SIZE * 1024 * 1024 * 1024)
 #endif
-
-//#define PREFETCH
-#ifdef PREFETCH
 #define BLOCK_SIZE 4096
-#define THREAD_NUM 4
+#define THREAD_NUM 1
 #define PREFETCH_OFFSET 1
 #define PREFETCH_WINDOW (THREAD_NUM * PREFETCH_OFFSET)
-#define atomic_load_prefetch(ptr) __sync_fetch_and_add(ptr, 0)
-#define atomic_store_prefetch(ptr, val) __sync_lock_test_and_set(ptr, val)
-#define atomic_increase_prefetch(ptr) __sync_fetch_and_add(ptr, 1)
-#endif
 
-//#define MLOCK
+#define MLOCK
 #ifdef MLOCK
-#define LOCK_SIZE 1.9
+#define LOCK_SIZE 1.2
 #define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
 //#define MLOCK_KV
 //#define MLOCK_BUFFER
+#endif
+
+#define atomic_load_prefetch(ptr) __sync_fetch_and_add(ptr, 0)
+#define atomic_store_prefetch(ptr, val) __sync_lock_test_and_set(ptr, val)
+#define atomic_increase_prefetch(ptr) __sync_fetch_and_add(ptr, 1)
 #endif
 
 //#define DEBUG
@@ -262,7 +266,18 @@
 
 #define GGUF_VERSION 3
 
-#define GGUF_DEFAULT_ALIGNMENT 32
+
+#ifdef PREFETCH
+#ifdef PREREAD
+#define GGUF_DEFAULT_ALIGNMENT 512
+#else
+#define GGUF_DEFAULT_ALIGNMENT 512
+#endif
+#endif
+
+#ifndef PREFETCH
+#define GGUF_DEFAULT_ALIGNMENT 512
+#endif
 
 #define GGML_UNUSED(x) (void)(x)
 
@@ -807,9 +822,11 @@ extern "C" {
     GGML_API struct ggml_tensor * ggml_format_name(      struct ggml_tensor * tensor, const char * fmt, ...);
 
 #ifdef PREFETCH
-    GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor);
+    GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param);
     GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor, bool use_mmap);
+//#ifdef MLOCK
     GGML_API void       ggml_mlock_tensor    (      struct ggml_tensor * tensor, bool use_mmap);
+//#endif
 #endif
     //
     // operations on tensors with backpropagation
