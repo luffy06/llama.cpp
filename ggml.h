@@ -180,26 +180,21 @@
 #define MLOCK
 #define PREREAD
 #define ASYNC_READ
-
-//#ifdef PREREAD
-#define PREREAD_SIZE 1.7
-#define PREREAD_BYTE (uint64_t)(1.0 * PREREAD_SIZE * 1024 * 1024 * 1024)
-//#endif
-#define BLOCK_SIZE 4096
-#define THREAD_NUM 1
-#define PREFETCH_OFFSET 1
-#define PREFETCH_WINDOW (THREAD_NUM * PREFETCH_OFFSET)
-
-//#ifdef MLOCK
-#define LOCK_SIZE 1.2
-#define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
 //#define MLOCK_KV
 //#define MLOCK_BUFFER
-//#endif
+
+#define BLOCK_SIZE 4096
+#define THREAD_NUM 1
+#define PREFETCH_SIZE 0.3
+
+#define LOCK_SIZE 1.4
+#define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
 
 #define atomic_load_prefetch(ptr) __sync_fetch_and_add(ptr, 0)
 #define atomic_store_prefetch(ptr, val) __sync_lock_test_and_set(ptr, val)
 #define atomic_increase_prefetch(ptr) __sync_fetch_and_add(ptr, 1)
+#define atomic_add_prefetch(ptr, val) __sync_fetch_and_add(ptr, val)
+#define atomic_sub_prefetch(ptr, val) __sync_fetch_and_sub(ptr, val)
 #endif
 
 //#define DEBUG
@@ -825,9 +820,9 @@ extern "C" {
 
 #ifdef PREFETCH
     GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param);
-    GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor, bool use_mmap);
+    GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor);
 //#ifdef MLOCK
-    GGML_API void       ggml_mlock_tensor    (      struct ggml_tensor * tensor, bool use_mmap);
+    GGML_API void       ggml_mlock_tensor   (      struct ggml_tensor * tensor);
 //#endif
 #endif
     //

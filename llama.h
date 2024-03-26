@@ -197,7 +197,7 @@ extern "C" {
         bool use_mlock;  // force system to keep model in RAM
 #ifdef PREFETCH
         int32_t thread_num;
-        int32_t prefetch_offset;
+        float prefetch_size;
 //#ifdef MLOCK
         float lock_size;
 //#endif
