@@ -64,7 +64,8 @@ GGML_API void   ggml_tallocr_reset      (ggml_tallocr_t talloc);
 GGML_API void   ggml_tallocr_alloc      (ggml_tallocr_t talloc, struct ggml_tensor * tensor);
 GGML_API size_t ggml_tallocr_max_size   (ggml_tallocr_t talloc);
 
-#ifdef PREREAD
+//#ifdef PREREAD
+#ifdef PREFETCH
 GGML_API void   ggml_tallocr_free_my_tensor(ggml_tallocr_t alloc, struct ggml_tensor * tensor);
 GGML_API void   ggml_tallocr_set_available (ggml_tallocr_t alloc, size_t available);
 GGML_API size_t ggml_tallocr_get_available (ggml_tallocr_t alloc);

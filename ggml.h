@@ -174,28 +174,28 @@
 //
 
 #define PREFETCH
+
 #ifdef PREFETCH
 
 #define MLOCK
 #define PREREAD
 #define ASYNC_READ
 
-#ifdef PREREAD
+//#ifdef PREREAD
 #define PREREAD_SIZE 1.7
 #define PREREAD_BYTE (uint64_t)(1.0 * PREREAD_SIZE * 1024 * 1024 * 1024)
-#endif
+//#endif
 #define BLOCK_SIZE 4096
 #define THREAD_NUM 1
 #define PREFETCH_OFFSET 1
 #define PREFETCH_WINDOW (THREAD_NUM * PREFETCH_OFFSET)
 
-#define MLOCK
-#ifdef MLOCK
+//#ifdef MLOCK
 #define LOCK_SIZE 1.2
 #define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
 //#define MLOCK_KV
 //#define MLOCK_BUFFER
-#endif
+//#endif
 
 #define atomic_load_prefetch(ptr) __sync_fetch_and_add(ptr, 0)
 #define atomic_store_prefetch(ptr, val) __sync_lock_test_and_set(ptr, val)
@@ -268,15 +268,16 @@
 
 
 #ifdef PREFETCH
-#ifdef PREREAD
+//#ifdef PREREAD
 #define GGUF_DEFAULT_ALIGNMENT 512
-#else
-#define GGUF_DEFAULT_ALIGNMENT 512
-#endif
-#endif
+//#else
+//#define GGUF_DEFAULT_ALIGNMENT 512
+//#endif
+//#endif
 
-#ifndef PREFETCH
-#define GGUF_DEFAULT_ALIGNMENT 512
+// #ifndef PREFETCH
+#else
+#define GGUF_DEFAULT_ALIGNMENT 32
 #endif
 
 #define GGML_UNUSED(x) (void)(x)
@@ -588,7 +589,8 @@ extern "C" {
 
         void * extra; // extra things e.g. for ggml-cuda.cu
 
-#ifdef PREREAD
+//#ifdef PREREAD
+#ifdef PREFETCH
         uint64_t off;
 #else
         char padding[8];
