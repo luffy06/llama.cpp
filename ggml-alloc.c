@@ -39,7 +39,6 @@ struct ggml_tallocr {
     struct free_block free_blocks[MAX_FREE_BLOCKS];
 
     size_t max_size;
-//#ifdef PREREAD
 #ifdef PREFETCH
     size_t available_size;
 #endif
@@ -89,9 +88,7 @@ void ggml_tallocr_alloc(ggml_tallocr_t alloc, struct ggml_tensor * tensor) {
 
     size_t size = ggml_backend_buffer_get_alloc_size(alloc->buffer, tensor);
     size = aligned_offset(NULL, size, alloc->alignment);
-//#ifdef PREREAD
 #ifdef PREFETCH
-    //alloc->available_size -= size;
     atomic_sub_prefetch(&alloc->available_size, size);
 #endif
     AT_PRINTF("%s: allocating %s (%zu bytes) - ", __func__, tensor->name, size);
@@ -237,16 +234,13 @@ static void ggml_tallocr_free_tensor(ggml_tallocr_t alloc, struct ggml_tensor * 
 }
 
 
-//#ifdef PREREAD
 #ifdef PREFETCH
 
 GGML_API void ggml_tallocr_set_available(ggml_tallocr_t alloc, uint64_t available) {
-    //alloc->available_size = available;
     atomic_store_prefetch(&alloc->available_size, available);
 }
 
 GGML_API size_t ggml_tallocr_get_available (ggml_tallocr_t alloc) {
-    //return alloc->available_size;
     return atomic_load_prefetch(&alloc->available_size);
 }
 
@@ -349,7 +343,6 @@ ggml_tallocr_t ggml_tallocr_new(void * data, size_t size, size_t alignment) {
         /*.n_free_blocks = */ 0,
         /*.free_blocks   = */ {{0}},
         /*.max_size      = */ 0,
-//#ifdef PREREAD
 #ifdef PREFETCH
         /* available     = */ 0,
 #endif
@@ -397,16 +390,14 @@ ggml_tallocr_t ggml_tallocr_new_from_buffer(struct ggml_backend_buffer * buffer)
         /*.buffer        = */ buffer,
         /*.buffer_owned  = */ false,
         /*.base          = */ ggml_backend_buffer_get_base(buffer),
-//#ifdef PREREAD
 #ifdef PREFETCH
-        /*.alignment     = */ 512, //ggml_backend_buffer_get_alignment(buffer),
+        /*.alignment     = */ 512,
 #else
         /*.alignment     = */ ggml_backend_buffer_get_alignment(buffer),
 #endif
         /*.n_free_blocks = */ 0,
         /*.free_blocks   = */ {{0}},
         /*.max_size      = */ 0,
-//#ifdef PREREAD
 #ifdef PREFETCH
         /* available     = */ 0,
 #endif
@@ -625,7 +616,6 @@ static void allocate_node(ggml_gallocr_t galloc, struct ggml_tensor * node) {
                     }
                 }
             }
-//#ifdef PREREAD
 #ifdef PREFETCH
             if (!node->is_param)
 #endif

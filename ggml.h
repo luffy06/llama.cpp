@@ -177,27 +177,24 @@
 
 #ifdef PREFETCH
 
-#define MLOCK
-#define PREREAD
-#define ASYNC_READ
+#define SYNC_READ
 //#define MLOCK_KV
 //#define MLOCK_BUFFER
+//#define DEBUG
+
+#define THREAD_NUM 4
+#define PREFETCH_SIZE 0.3
+#define LOCK_SIZE 1.4
 
 #define BLOCK_SIZE 4096
-#define THREAD_NUM 1
-#define PREFETCH_SIZE 0.3
-
-#define LOCK_SIZE 1.4
-#define LOCK_BYTE (uint64_t)(1.0 * LOCK_SIZE * 1024 * 1024 * 1024)
 
 #define atomic_load_prefetch(ptr) __sync_fetch_and_add(ptr, 0)
 #define atomic_store_prefetch(ptr, val) __sync_lock_test_and_set(ptr, val)
 #define atomic_increase_prefetch(ptr) __sync_fetch_and_add(ptr, 1)
 #define atomic_add_prefetch(ptr, val) __sync_fetch_and_add(ptr, val)
 #define atomic_sub_prefetch(ptr, val) __sync_fetch_and_sub(ptr, val)
-#endif
 
-//#define DEBUG
+#endif
 
 #ifdef GGML_SHARED
 #    if defined(_WIN32) && !defined(__MINGW32__)
@@ -263,14 +260,7 @@
 
 
 #ifdef PREFETCH
-//#ifdef PREREAD
 #define GGUF_DEFAULT_ALIGNMENT 512
-//#else
-//#define GGUF_DEFAULT_ALIGNMENT 512
-//#endif
-//#endif
-
-// #ifndef PREFETCH
 #else
 #define GGUF_DEFAULT_ALIGNMENT 32
 #endif
@@ -584,7 +574,6 @@ extern "C" {
 
         void * extra; // extra things e.g. for ggml-cuda.cu
 
-//#ifdef PREREAD
 #ifdef PREFETCH
         uint64_t off;
 #else
@@ -821,9 +810,7 @@ extern "C" {
 #ifdef PREFETCH
     GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param);
     GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor);
-//#ifdef MLOCK
     GGML_API void       ggml_mlock_tensor   (      struct ggml_tensor * tensor);
-//#endif
 #endif
     //
     // operations on tensors with backpropagation

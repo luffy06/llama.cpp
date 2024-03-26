@@ -29,20 +29,14 @@
 #endif
 
 #ifdef PREFETCH
-//#ifdef PREREAD
+#include <sys/mman.h>
+#include <sys/time.h>
 #include "ggml-alloc.h"
 int global_file;
 ggml_tallocr_t global_alloc;
-bool prefetch_no_mmap;
-//#endif
-#include <sys/mman.h>
-#include <sys/time.h>
+int prefetch_no_mmap = 0;
 uint16_t prefetch_status = 0;
 uint16_t forward_status = 0;
-/*
-uint16_t prefetch_statuses[2] = {0};
-uint16_t alloc_lock = 0;
-*/
 #endif
 
 
@@ -3357,14 +3351,14 @@ size_t ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param) {
 }
 
 void ggml_prefetch_tensor(struct ggml_tensor * tensor) {
-    if (!prefetch_no_mmap) {
+    if (prefetch_no_mmap == 0) {
         assert(tensor != NULL && tensor->data != NULL); 
         size_t size = ggml_nbytes(tensor);
         volatile uint8_t tmp_sum = 0;
         for (size_t k = 0; k < size; k += BLOCK_SIZE)
             tmp_sum += ((uint8_t *)tensor->data)[k];
     } else { 
-        while (ggml_tallocr_get_available(global_alloc) < ggml_nbytes(tensor)*3) {
+        while (ggml_tallocr_get_available(global_alloc) < ggml_nbytes(tensor) * 3) {
             //printf("waiting for available memory\n");
         }
         if (tensor->data != NULL)
@@ -3381,13 +3375,11 @@ void ggml_prefetch_tensor(struct ggml_tensor * tensor) {
     }
 }
 
-//#ifdef MLOCK
 void ggml_mlock_tensor(struct ggml_tensor * tensor) {
     assert(tensor != NULL && tensor->data != NULL); 
     size_t size = ggml_nbytes(tensor);
     mlock(tensor->data, size);
 }
-//#endif
 #endif
 
 
@@ -16624,7 +16616,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 GGML_PRINT_DEBUG_5("%s: %d/%d\n", __func__, node_n, cgraph->n_nodes);
                 struct ggml_tensor * node = cgraph->nodes[node_n];
 #ifdef PREFETCH
-                if (prefetch_no_mmap) {
+                if (prefetch_no_mmap == 1) {
                     int layer = ggml_get_layer_index(node, 0);
                     while (layer == atomic_load_prefetch(&prefetch_status)) {};
                     if (layer != -1 && layer != atomic_load_prefetch(&forward_status)) {
@@ -16632,7 +16624,20 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                     }
                 }
 #ifdef SYNC_READ
-                // TODO: this is a hack to make sure that the data is read before the next node
+                if (prefetch_no_mmap == 2)
+                    for (int i = 0; i < GGML_MAX_SRC; i++) {
+                        if (node->src[i] != NULL) {
+                            if (node->src[i]->is_param == 1 && node->src[i]->data == NULL) {
+                                ggml_tallocr_alloc(global_alloc, node->src[i]);
+                                int ret = pread(global_file, node->src[i]->data, ggml_nbytes(node->src[i]), node->src[i]->off);
+                                if (ret != ggml_nbytes(node->src[i])) {
+                                    fprintf(stderr, "read error %d\n", ret);
+                                    exit(1);
+                                }
+                            }
+                        } else
+                            break;
+                    }
 #endif
 #endif
                 const int n_tasks = ggml_get_n_tasks(node, n_threads);
@@ -16664,7 +16669,11 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                     break;
                 }
 #ifdef PREFETCH
-                if (prefetch_no_mmap) {
+#ifdef SYNC_READ
+                if (prefetch_no_mmap == 1 || prefetch_no_mmap == 2) {
+#else
+                if (prefetch_no_mmap == 1) {
+#endif
                     struct ggml_tensor * free_node = cgraph->nodes[node_n];
                     for (int i = 0; i < GGML_MAX_SRC; i++) {
                         if (free_node->src[i] != NULL) {
@@ -16674,7 +16683,6 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
 #endif
                                 ggml_tallocr_free_my_tensor(global_alloc, free_node->src[i]);
                                 free_node->src[i]->data = NULL;
-                                //printf("free %s\n", free_node->src[i]->name);
                             }
                         } else
                             break;

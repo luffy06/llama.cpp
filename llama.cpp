@@ -81,28 +81,23 @@
 
 #ifdef PREFETCH
 
-extern "C" {
-    extern bool prefetch_no_mmap;
-}
-//#ifdef PREREAD
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/time.h>
+#ifdef MLOCK_KV
+#include "ggml-backend-impl.h"
+#endif
+
 extern "C" {
     extern ggml_tallocr_t global_alloc;
     extern int global_file;
-}
-//#endif
-#include <sys/time.h>
-extern "C" {
+    extern int prefetch_no_mmap;
     extern uint16_t forward_status;
     extern uint16_t prefetch_status;
 }
 uint32_t thread_num;
 size_t prefetch_size;
-//#ifdef MLOCK
 float lock_size;
-#ifdef MLOCK_KV
-#include "ggml-backend-impl.h"
-#endif
-//#endif
 
 #endif
 
@@ -784,10 +779,7 @@ struct no_init {
     no_init() { /* do nothing */ }
 };
 
-//#ifdef PREREAD
 #ifdef PREFETCH
-#include <fcntl.h>
-#include <unistd.h>
 
 struct llama_file {
     // use file descriptor so we can open the file with O_DIRECT
@@ -950,7 +942,6 @@ struct llama_mmap {
 
     llama_mmap(struct llama_file * file, size_t prefetch = (size_t) -1 /* -1 = max value */, bool numa = false) {
         size = file->size;
-//#ifdef PREREAD
 #ifdef PREFETCH
         int fd = file->fd;
 #else
@@ -2715,7 +2706,7 @@ struct llama_model_loader {
             args[i].num_tensors = layer_tensor_index;
             args[i].weight = tensors;
             int rc;
-            if (prefetch_no_mmap)
+            if (prefetch_no_mmap > 0)
                 rc = pthread_create(&p[i], NULL, read_weights_thread, &args[i]);
             else 
                 rc = pthread_create(&p[i], NULL, touch_weights_thread, &args[i]);
@@ -3955,11 +3946,7 @@ static bool llm_load_tensors(
     ml.done_getting_tensors();
 
 #ifdef PREFETCH
-//#ifdef PREREAD
-//    ml.init_mapping();
-//#else
     ml.init_mapping(0);
-//#endif
 #else
     ml.init_mapping();
 #endif
@@ -4006,10 +3993,10 @@ static bool llm_load_tensors(
             buf_mmap = model.buf;
         } else {
             // allocate only CPU tensors
+#ifdef PREFETCH
 #ifdef DEBUG
             printf("model.buf = %p\n", model.buf);
 #endif
-#ifdef PREFETCH
             float buffer_sizze = (float)PREFETCH_SIZE + (float)LOCK_SIZE;
             size_t buffer_byte = (size_t)((double)1.0 * buffer_sizze * 1024 * 1024 * 1024);
             model.buf = ggml_backend_buft_alloc_buffer(buft, buffer_byte);
@@ -4113,13 +4100,13 @@ static int llama_model_load(const std::string & fname, llama_model & model, cons
 #ifdef PREFETCH
         thread_num = params.thread_num;
         prefetch_size = (size_t)((double)1.0 * params.prefetch_size * 1024 * 1024 * 1024);
-//#ifdef MLOCK 
         lock_size = params.lock_size;
-        prefetch_no_mmap = !params.use_mmap;
-        if (prefetch_no_mmap)
+        prefetch_no_mmap = params.use_mmap ? 0 : 1;
+        if (prefetch_no_mmap && thread_num > 1)
             thread_num = 1;
+        if (prefetch_no_mmap && thread_num == 0)
+            prefetch_no_mmap = 2;
         printf("lock size = %f\n", lock_size);
-//#endif
 #endif
 
         if (!llm_load_tensors(
@@ -9574,9 +9561,7 @@ struct llama_model_params llama_model_default_params() {
 #ifdef PREFETCH
         /*.thread_num                  =*/ THREAD_NUM,
         /*.prefetch_size               =*/ PREFETCH_SIZE,
-//#ifdef MLOCK
         /*.lock_size                   =*/ LOCK_SIZE,
-//#endif
 #endif
     };
 

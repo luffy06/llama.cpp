@@ -448,7 +448,6 @@ static struct ggml_backend_buffer_i cpu_backend_buffer_i_from_ptr = {
     /* .clear           = */ ggml_backend_cpu_buffer_clear,
 };
 
-//#ifdef PREREAD
 #ifdef PREFETCH
 static const size_t TENSOR_ALIGNMENT = 512; // should be enough for AVX 512
 #else

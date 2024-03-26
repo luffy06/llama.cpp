@@ -124,10 +124,8 @@ struct gpt_params {
     bool use_mlock         = false; // use mlock to keep model in memory
 #ifdef PREFETCH
     uint32_t thread_num       = THREAD_NUM;
-    uint32_t prefetch_offset  = PREFETCH_OFFSET;
-//#ifdef MLOCK
+    float prefetch_size       = PREFETCH_SIZE;
     float lock_size           = LOCK_SIZE;
-//#endif
 #endif
     bool numa              = false; // attempt optimizations that help on some NUMA systems
     bool verbose_prompt    = false; // print prompt tokens before generation

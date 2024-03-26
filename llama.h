@@ -198,9 +198,7 @@ extern "C" {
 #ifdef PREFETCH
         int32_t thread_num;
         float prefetch_size;
-//#ifdef MLOCK
         float lock_size;
-//#endif
 #endif
     };
 

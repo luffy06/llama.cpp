@@ -546,20 +546,18 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
                 break;
             }
             params.thread_num = std::stoi(argv[i]);
-        } else if (arg == "-poff" || arg == "--prefetch-offset") {
+        } else if (arg == "-pfz" || arg == "--prefetch-size") {
             if (++i >= argc) {
                 invalid_param = true;
                 break;
             }
-            params.prefetch_offset = std::stoi(argv[i]);
-//#ifdef MLOCK
+            params.prefetch_size = std::stof(argv[i]);
         } else if (arg == "-lsize" || arg == "--lock-size") {
             if (++i >= argc) {
                 invalid_param = true;
                 break;
             }
             params.lock_size = std::stof(argv[i]);
-//#endif
 #endif
         } else if (arg == "--gpu-layers" || arg == "-ngl" || arg == "--n-gpu-layers") {
             if (++i >= argc) {
@@ -1057,10 +1055,8 @@ struct llama_model_params llama_model_params_from_gpt_params(const gpt_params & 
     mparams.use_mlock       = params.use_mlock;
 #ifdef PREFETCH
     mparams.thread_num      = params.thread_num;
-    mparams.prefetch_offset = params.prefetch_offset;
-//#ifdef MLOCK
+    mparams.prefetch_size   = params.prefetch_size;
     mparams.lock_size       = params.lock_size;
-//#endif
 #endif
     if (params.kv_overrides.empty()) {
         mparams.kv_overrides = NULL;
