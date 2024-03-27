@@ -180,6 +180,7 @@
 #define SYNC_READ
 //#define MLOCK_KV
 //#define MLOCK_BUFFER
+
 //#define DEBUG
 
 #define THREAD_NUM 4
@@ -262,7 +263,8 @@
 #ifdef PREFETCH
 #define GGUF_DEFAULT_ALIGNMENT 512
 #else
-#define GGUF_DEFAULT_ALIGNMENT 32
+//#define GGUF_DEFAULT_ALIGNMENT 32
+#define GGUF_DEFAULT_ALIGNMENT 512
 #endif
 
 #define GGML_UNUSED(x) (void)(x)

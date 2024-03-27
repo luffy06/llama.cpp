@@ -97,7 +97,7 @@ extern "C" {
 }
 uint32_t thread_num;
 size_t prefetch_size;
-float lock_size;
+size_t lock_size;
 
 #endif
 
@@ -2669,9 +2669,9 @@ struct llama_model_loader {
         assert(max_layer_index >= 0);
         size_t tensor_per_layer = tensor_num / (max_layer_index + 1);
         size_t prefetch_tensor_num = 0;
-        size_t lock_byte = (size_t)((double)1.0 * lock_size * 1024 * 1024 * 1024);
+        size_t lock_byte = lock_size;
         double precent_lock = 1.0 * lock_byte / total_size; 
-        printf("\nLock_byte: %lu bytes(%lfGB) Total size: %lu bytes(%lfGB) Precent_lock: %lf\n", lock_byte, lock_size, total_size, total_size / 1024.0 / 1024.0 / 1024.0, precent_lock);
+        printf("\nLock_byte: %lu bytes(%lfGB) Total size: %lu bytes(%lfGB) Precent_lock: %lf\n", lock_byte, lock_size / 1024.0 / 1024.0 / 1024.0, total_size, total_size / 1024.0 / 1024.0 / 1024.0, precent_lock);
         struct ggml_tensor** tensors = (struct ggml_tensor**)malloc(sizeof(struct ggml_tensor*) * tensor_num);
         int layer_tensor_index = 0;
         for (int i = 0; i < tensor_num; i++) {
@@ -3997,8 +3997,9 @@ static bool llm_load_tensors(
 #ifdef DEBUG
             printf("model.buf = %p\n", model.buf);
 #endif
-            float buffer_sizze = (float)PREFETCH_SIZE + (float)LOCK_SIZE;
-            size_t buffer_byte = (size_t)((double)1.0 * buffer_sizze * 1024 * 1024 * 1024);
+            // float buffer_size = (float)prefetch_size + (float)lock_size;
+            //size_t buffer_byte = (size_t)((double)1.0 * buffer_size * 1024 * 1024 * 1024);
+            size_t buffer_byte = prefetch_size + lock_size;
             model.buf = ggml_backend_buft_alloc_buffer(buft, buffer_byte);
             printf("model.buf = %p buf_size = %llu %lfGB\n", model.buf, buffer_byte, buffer_byte / 1024.0 / 1024.0 / 1024.0);
             global_alloc = ggml_tallocr_new_from_buffer(model.buf);
@@ -4100,13 +4101,13 @@ static int llama_model_load(const std::string & fname, llama_model & model, cons
 #ifdef PREFETCH
         thread_num = params.thread_num;
         prefetch_size = (size_t)((double)1.0 * params.prefetch_size * 1024 * 1024 * 1024);
-        lock_size = params.lock_size;
+        lock_size = (size_t)((double)1.0 * params.lock_size * 1024 * 1024 * 1024);
         prefetch_no_mmap = params.use_mmap ? 0 : 1;
         if (prefetch_no_mmap && thread_num > 1)
             thread_num = 1;
         if (prefetch_no_mmap && thread_num == 0)
             prefetch_no_mmap = 2;
-        printf("lock size = %f\n", lock_size);
+        printf("lock size = %lu\n", lock_size);
 #endif
 
         if (!llm_load_tensors(
