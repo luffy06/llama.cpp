@@ -449,9 +449,9 @@ static struct ggml_backend_buffer_i cpu_backend_buffer_i_from_ptr = {
 };
 
 #ifdef PREFETCH
-static const size_t TENSOR_ALIGNMENT = 512; // should be enough for AVX 512
+static const size_t TENSOR_ALIGNMENT = 4096; // should be enough for AVX 512
 #else
-static const size_t TENSOR_ALIGNMENT = 512; // should be enough for AVX 512
+static const size_t TENSOR_ALIGNMENT = 4096; // should be enough for AVX 512
 //static const size_t TENSOR_ALIGNMENT = 64; // should be enough for AVX 512
 #endif
 

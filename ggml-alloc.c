@@ -391,7 +391,7 @@ ggml_tallocr_t ggml_tallocr_new_from_buffer(struct ggml_backend_buffer * buffer)
         /*.buffer_owned  = */ false,
         /*.base          = */ ggml_backend_buffer_get_base(buffer),
 #ifdef PREFETCH
-        /*.alignment     = */ 512,
+        /*.alignment     = */ 4096,
 #else
         /*.alignment     = */ ggml_backend_buffer_get_alignment(buffer),
 #endif

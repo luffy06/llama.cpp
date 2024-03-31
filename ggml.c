@@ -3370,7 +3370,7 @@ void ggml_prefetch_tensor(struct ggml_tensor * tensor) {
             printf("async read error: %s %d %p %lu\n", strerror(errno), global_file, tensor->data, ggml_nbytes(tensor));
         }
         if (ret != ggml_nbytes(tensor)) {
-            printf("async unexpectedly reached end of file\n");
+            printf("read_error: %d %s %d %p %lu %lu\n", ret, tensor->name, global_file, tensor->data, ggml_nbytes(tensor), tensor->off);
         }
     }
 }
