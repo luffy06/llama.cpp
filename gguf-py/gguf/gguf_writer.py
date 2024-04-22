@@ -302,6 +302,9 @@ class GGUFWriter:
     def add_file_type(self, ftype: int) -> None:
         self.add_uint32(Keys.General.FILE_TYPE, ftype)
 
+    def add_alignment(self, alignment: int) -> None:
+        self.add_uint32(Keys.General.ALIGNMENT, alignment)
+
     def add_name(self, name: str) -> None:
         self.add_string(Keys.General.NAME, name)
 
