@@ -415,8 +415,9 @@ class OutputFile:
         concurrency: int = DEFAULT_CONCURRENCY,
         endianess: gguf.GGUFEndian = gguf.GGUFEndian.LITTLE,
         pad_vocab: bool = False,
+        align: int = 32,
     ) -> None:
-        of = OutputFile(fname_out, endianess=endianess)
+        of = OutputFile(fname_out, endianess=endianess, align=align)
 
         # meta data
         of.add_meta_arch(params)
@@ -454,6 +455,7 @@ def main(args_in: list[str] | None = None) -> None:
     parser.add_argument("--concurrency", type=int,               help=f"concurrency used for conversion (default: {DEFAULT_CONCURRENCY})", default = DEFAULT_CONCURRENCY)
     parser.add_argument("--bigendian",   action="store_true",    help="model is executed on big endian machine")
     parser.add_argument("--padvocab", action="store_true", help="add pad tokens when model vocab expects more than tokenizer metadata provides")
+    parser.add_argument("--align", type=int, default=32, help="alignment for GGUF file (default: 32)")
 
     args = parser.parse_args(args_in)
     
@@ -479,7 +481,8 @@ def main(args_in: list[str] | None = None) -> None:
     model = sort_layers(model)
 
     OutputFile.write_all(outfile, ftype, params, model, vocab, special_vocab,
-                         concurrency = args.concurrency, endianess = endianess, pad_vocab = args.padvocab)
+                         concurrency = args.concurrency, endianess = endianess, 
+                         pad_vocab = args.padvocab, align = args.align)
     print(f"Wrote {outfile}")
 
 if __name__ == '__main__':
