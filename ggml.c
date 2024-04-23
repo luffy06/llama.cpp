@@ -39,6 +39,10 @@ uint16_t prefetch_status = 0;
 uint16_t forward_status = 0;
 #endif
 
+#ifdef EARLY_STOP
+struct ggml_tensor * query_tensor = NULL;
+#endif
+
 
 #if defined(_MSC_VER)
 // disable "possible loss of data" to avoid hundreds of casts
@@ -2715,7 +2719,11 @@ static struct ggml_tensor * ggml_new_tensor_impl(
         /*.data         =*/ obj_alloc_size > 0 ? (void *)(result + 1) : data,
         /*.name         =*/ { 0 },
         /*.extra        =*/ NULL,
+#ifdef PREFETCH
+        /*.off          =*/ 0,
+#else
         /*.padding      =*/ { 0 },
+#endif
     };
 
     // TODO: this should not be needed as long as we don't rely on aligned SIMD loads
@@ -3317,11 +3325,11 @@ struct ggml_tensor * ggml_get_tensor(struct ggml_context * ctx, const char * nam
     return NULL;
 }
 
-#ifdef PREFETCH
-size_t ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param) {
-    size_t result = -1;
+#if defined(PREFETCH) || defined(EARLY_STOP)
+int ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param) {
+    int result = -1;
     const char * name = tensor->name;
-    assert(name ! = NULL);
+    assert(name != NULL);
     if (is_param) {
         // name = blk.xx.yy.zz or blk.x.yy.zz x/xx = layer index
         if (name[4] < '0' || name[4] > '9') {
@@ -3345,6 +3353,12 @@ size_t ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param) {
                     result = result * 10 + pch[2] - '0';
                 }
             }
+            result = result + 1;
+        } else if (strcmp(name, "inp_embd") == 0) {
+            result = 0;
+        } else if (strcmp(name, "norm") == 0 || strcmp(name, "result_norm") == 0 
+                    || strcmp(name, "result_output") == 0) {
+            result = 50;
         }
     }
     return result;
@@ -3366,10 +3380,10 @@ void ggml_prefetch_tensor(struct ggml_tensor * tensor) {
         while (tensor->data == NULL)
             ggml_tallocr_alloc(global_alloc, tensor);
         int ret = pread(global_file, tensor->data, ggml_nbytes(tensor), tensor->off);
-        if (ret == -1) {
+        if (ret < 0) {
             printf("async read error: %s %d %p %lu\n", strerror(errno), global_file, tensor->data, ggml_nbytes(tensor));
         }
-        if (ret != ggml_nbytes(tensor)) {
+        if ((size_t)ret != ggml_nbytes(tensor)) {
             printf("read_error: %d %s %d %p %lu %lu\n", ret, tensor->name, global_file, tensor->data, ggml_nbytes(tensor), tensor->off);
         }
     }
@@ -16723,6 +16737,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         /* COMPUTE */
         struct ggml_tensor * node = cgraph->nodes[node_n];
         const int n_tasks = ggml_get_n_tasks(node, n_threads);
+        const int layer_index = ggml_get_layer_index(node->name, false);
 
         struct ggml_compute_params params = {
             /*.type  =*/ GGML_TASK_COMPUTE,
@@ -16733,7 +16748,15 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         };
 
         if (state->ith < n_tasks) {
+
             ggml_compute_forward(&params, node);
+#ifdef EARLY_STOP
+            if (strcmp(node->name, "inp_embd") == 0) {
+                query_tensor = node;
+                printf("query_tensor = %s\n", query_tensor->name);
+                exit(-1);
+            }
+#endif
         }
     }
 

@@ -174,6 +174,7 @@
 //
 
 #define PREFETCH
+#define EARLY_STOP
 
 #ifdef PREFETCH
 
@@ -809,8 +810,8 @@ extern "C" {
     GGML_ATTRIBUTE_FORMAT(2, 3)
     GGML_API struct ggml_tensor * ggml_format_name(      struct ggml_tensor * tensor, const char * fmt, ...);
 
-#ifdef PREFETCH
-    GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param);
+#if defined(PREFETCH) || defined(EARLY_STOP)
+    GGML_API int        ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param);
     GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor);
     GGML_API void       ggml_mlock_tensor   (      struct ggml_tensor * tensor);
 #endif
