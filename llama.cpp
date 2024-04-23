@@ -10724,6 +10724,7 @@ int llama_decode(
     if (ret < 0) {
         LLAMA_LOG_ERROR("%s: failed to decode, ret = %d\n", __func__, ret);
     }
+    exit(-1);
 
     return ret;
 }

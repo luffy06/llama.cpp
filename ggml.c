@@ -41,6 +41,10 @@ uint16_t forward_status = 0;
 
 #ifdef EARLY_STOP
 struct ggml_tensor * query_tensor = NULL;
+struct ggml_tensor * last_hidden_state = NULL;
+int32_t early_stop_index = -1;
+int32_t resume_index = -1;
+char early_stop_name[100];
 #endif
 
 
@@ -3363,7 +3367,9 @@ int ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param) {
     }
     return result;
 }
+#endif
 
+#ifdef PREFETCH
 void ggml_prefetch_tensor(struct ggml_tensor * tensor) {
     if (prefetch_no_mmap == 0) {
         assert(tensor != NULL && tensor->data != NULL); 
@@ -14526,6 +14532,26 @@ static void ggml_compute_forward_cross_entropy_loss_back(
 static void ggml_compute_forward(struct ggml_compute_params * params, struct ggml_tensor * tensor) {
     GGML_ASSERT(params);
 
+#ifdef EARLY_STOP
+    int layer_index = ggml_get_layer_index(tensor, false);
+    if (early_stop_index != -1 && layer_index > early_stop_index && layer_index <= resume_index) {
+        fprintf(stderr, "Skipping forward operation for tensor %s at layer %d\n", tensor->name, layer_index);
+        return;
+    }
+    if (layer_index > resume_index && last_hidden_state != NULL) {
+        fprintf(stderr, "Resume at layer %d last_hidden_state for tensor %s\n", resume_index, tensor->name);
+        tensor->src[0] = last_hidden_state;
+        last_hidden_state = NULL;
+    }
+    fprintf(stderr, "Tensor %s, forward operation: %s, layer index: %d/%ld\n", tensor->name, ggml_op_name(tensor->op), layer_index, params->num_layers);
+    // for (int i = 0; i < GGML_MAX_SRC; ++ i) {
+    //     fprintf(stderr, "  src[%d]: %s\n", i, tensor->src[i] ? tensor->src[i]->name : "NULL");
+    // }
+    // for (int i = 0; i < GGML_MAX_DIMS; ++ i) {
+    //     fprintf(stderr, "  ne[%d]: %ld\n", i, tensor->ne[i]);
+    // }
+#endif
+
     if (tensor->op == GGML_OP_NONE) {
         return;
     }
@@ -14859,6 +14885,20 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
                 GGML_ASSERT(false);
             } break;
     }
+
+#ifdef EARLY_STOP
+    if (strcmp(tensor->name, "inp_embd") == 0) {
+        query_tensor = tensor;
+        early_stop_index = 8;
+        resume_index = 28;
+        sprintf(early_stop_name, "l_out-%d", early_stop_index - 1);
+        fprintf(stderr, "Early stop at layer %d, name %s\n", early_stop_index, early_stop_name);
+    }
+    if (strcmp(tensor->name, early_stop_name) == 0) {
+        fprintf("Store the last_hidden_state for tensor %s at layer %d\n", tensor->name, layer_index);
+        last_hidden_state = tensor;
+    }
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -16102,6 +16142,9 @@ struct ggml_cgraph * ggml_new_graph_custom(struct ggml_context * ctx, size_t siz
         /*.leafs        =*/ leafs_ptr,
         /*.hash_table   =*/ { hash_size, hash_keys_ptr },
         /*.order        =*/ GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT,
+#ifdef EARLY_STOP
+        /*.num_layers   =*/ 0,
+#endif
         /*.perf_runs    =*/ 0,
         /*.perf_cycles  =*/ 0,
         /*.perf_time_us =*/ 0,
@@ -16596,6 +16639,8 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
 
     set_numa_thread_affinity(state->ith, n_threads);
 
+    fprintf(stderr, "%s:%d, Thread-%d start to compute, num layers:%ld\n", __FILE__, __LINE__, state->ith, num_layers);
+
     int node_n = -1;
 
     while (true) {
@@ -16612,6 +16657,9 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 /*.nth   =*/ 0,
                 /*.wsize =*/ cplan->work_size,
                 /*.wdata =*/ cplan->work_data,
+#ifdef EARLY_STOP
+                /*.num_layers =*/ num_layers,
+#endif
             };
 
             if (node_n != -1) {
@@ -16649,8 +16697,9 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                                     exit(1);
                                 }
                             }
-                        } else
+                        } else {
                             break;
+                        }
                     }
 #endif
 #endif
@@ -16737,7 +16786,6 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         /* COMPUTE */
         struct ggml_tensor * node = cgraph->nodes[node_n];
         const int n_tasks = ggml_get_n_tasks(node, n_threads);
-        const int layer_index = ggml_get_layer_index(node->name, false);
 
         struct ggml_compute_params params = {
             /*.type  =*/ GGML_TASK_COMPUTE,
@@ -16745,18 +16793,13 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
             /*.nth   =*/ n_tasks,
             /*.wsize =*/ cplan->work_size,
             /*.wdata =*/ cplan->work_data,
+#ifdef EARLY_STOP
+            /*.num_layers =*/ num_layers,
+#endif
         };
 
         if (state->ith < n_tasks) {
-
             ggml_compute_forward(&params, node);
-#ifdef EARLY_STOP
-            if (strcmp(node->name, "inp_embd") == 0) {
-                query_tensor = node;
-                printf("query_tensor = %s\n", query_tensor->name);
-                exit(-1);
-            }
-#endif
         }
     }
 

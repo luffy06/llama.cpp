@@ -664,6 +664,9 @@ extern "C" {
         // work buffer for all threads
         size_t wsize;
         void * wdata;
+#ifdef EARLY_STOP
+        size_t num_layers;
+#endif
     };
 
     // misc
@@ -812,6 +815,8 @@ extern "C" {
 
 #if defined(PREFETCH) || defined(EARLY_STOP)
     GGML_API int        ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param);
+#endif
+#ifdef PREFETCH
     GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor);
     GGML_API void       ggml_mlock_tensor   (      struct ggml_tensor * tensor);
 #endif
