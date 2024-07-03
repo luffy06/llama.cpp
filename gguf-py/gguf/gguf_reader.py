@@ -107,8 +107,8 @@ class GGUFReader:
         offs, tensors_fields = self._build_tensors_fields(offs, tensor_count)
         new_align = self.fields.get('general.alignment')
         if new_align is not None:
-            if new_align.types != [GGUFValueType.UINT64]:
-                raise ValueError('Bad type for general.alignment field')
+            # if new_align.types != [GGUFValueType.UINT64]:
+            #     raise ValueError('Bad type for general.alignment field')
             self.alignment = new_align.parts[-1][0]
         padding = offs % self.alignment
         if padding != 0:

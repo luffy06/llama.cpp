@@ -61,6 +61,23 @@ class QuantizedDataType(DataType):
         assert n_elements % self.block_size == 0, f'Invalid number of elements {n_elements} for {self.name} with block size {self.block_size}'
         return self.quantized_dtype.itemsize * (n_elements // self.block_size)
 
+@dataclass(frozen=True)
+class Q4_4QuantizedDataType(QuantizedDataType):
+    def quantize(self, arr: NDArray) -> NDArray:
+        assert arr.size % self.block_size == 0 and arr.size != 0, f'Bad array size {arr.size}'
+        assert arr.dtype == np.float32, f'Bad array type {arr.dtype}'
+        n_blocks = arr.size // self.block_size
+        blocks = arr.reshape((n_blocks, self.block_size))
+        # Much faster implementation of block quantization contributed by @Cebtenzzre
+
+        def quantize_blocks_q4_0(blocks: NDArray) -> Iterable[tuple[Any, Any]]:
+            d = abs(blocks).max(axis = 1) / np.float32(7)
+            with np.errstate(divide = 'ignore'):
+                qs = (blocks / d[:, None]).round()
+            qs[d == 0] = 0
+            yield from zip(d, qs)
+        return np.fromiter(quantize_blocks_q4_0(blocks), count = n_blocks, dtype = self.quantized_dtype)
+
 
 @dataclass(frozen=True)
 class Q8_0QuantizedDataType(QuantizedDataType):
@@ -85,7 +102,10 @@ DT_F16  = UnquantizedDataType('F16',  dtype = np.dtype(np.float16), valid_conver
 DT_F32  = UnquantizedDataType('F32',  dtype = np.dtype(np.float32), valid_conversions = ['F16', 'Q8_0'])
 DT_I32  = UnquantizedDataType('I32',  dtype = np.dtype(np.int16),   valid_conversions = [])
 DT_BF16 = UnquantizedDataType('BF16', dtype = np.dtype(np.uint16),  valid_conversions = ['F32', 'F16', 'Q8_0'])
-
+DT_Q4_0 = Q4_4QuantizedDataType('Q4_0',
+                                dtype = np.dtype(np.float32), valid_conversions = [],
+                                ggml_type = gguf.GGMLQuantizationType.Q4_0, block_size = 32,
+                                quantized_dtype = np.dtype([('d', '<f2'), ('qs', 'i1', (32,))]))
 DT_Q8_0 = Q8_0QuantizedDataType('Q8_0',
                                 dtype = np.dtype(np.float32), valid_conversions = [],
                                 ggml_type = gguf.GGMLQuantizationType.Q8_0, block_size = 32,
@@ -95,6 +115,7 @@ DT_Q8_0 = Q8_0QuantizedDataType('Q8_0',
 class GGMLFileType(enum.IntEnum):
     AllF32     = 0
     MostlyF16  = 1  # except 1d tensors
+    MostlyQ4_0 = 2  # except 1d tensors
     MostlyQ8_0 = 7  # except 1d tensors
 
     def type_for_tensor(self, name: str, tensor: ReaderTensor) -> DataType:
@@ -108,6 +129,7 @@ class GGMLFileType(enum.IntEnum):
 GGML_QUANT_TYPE_TO_DATA_TYPE: dict[gguf.GGMLQuantizationType, DataType] = {
     gguf.GGMLQuantizationType.F32 : DT_F32,
     gguf.GGMLQuantizationType.F16 : DT_F16,
+    gguf.GGMLQuantizationType.Q4_0: DT_Q4_0,
     gguf.GGMLQuantizationType.Q8_0 : DT_Q8_0,
 }
 
@@ -115,6 +137,7 @@ GGML_QUANT_TYPE_TO_DATA_TYPE: dict[gguf.GGMLQuantizationType, DataType] = {
 GGML_FILE_TYPE_TO_DATA_TYPE: dict[GGMLFileType, DataType] = {
     GGMLFileType.AllF32    : DT_F32,
     GGMLFileType.MostlyF16 : DT_F16,
+    GGMLFileType.MostlyQ4_0: DT_Q4_0,
     GGMLFileType.MostlyQ8_0: DT_Q8_0,
 }
 
@@ -125,13 +148,14 @@ class ReaderTensor:
     data_type: DataType
     data: NDArray
 
-    def __init__(self, idx, length, reader_tensor):
+    def __init__(self, idx, num_tensors, reader_tensor):
+        print(reader_tensor)
         self.shape = np.flip(reader_tensor.shape)
         self.data_type = GGML_QUANT_TYPE_TO_DATA_TYPE[reader_tensor.tensor_type]
         self.data = reader_tensor.data.reshape(self.shape)
         size = ' x '.join(f"{dim:6d}" for dim in reader_tensor.shape)
-        padi = len(str(length))
-        print(f"[{idx+1:{padi}d}/{length}] Reading tensor {reader_tensor.name:38s} | size {size:16} | type {self.data_type.name:4}")
+        padi = len(str(num_tensors))
+        print(f"[{idx+1:{padi}d}/{num_tensors}] Reading tensor {reader_tensor.name:38s} | size {size:16} | type {self.data_type.name:4}")
 
 
 def getDataFromReaderField(item):
@@ -197,6 +221,7 @@ class Params:
             self.rope_finetuned = getDataFromReaderField(fields[f"{ARCH_STR}.rope.scaling.finetuned"])
         if "general.file_type" in fields:
             self.ftype = getDataFromReaderField(fields["general.file_type"])
+            self.ftype = GGMLFileType(self.ftype)
 
 
 class VocabLoader:
@@ -288,6 +313,7 @@ def default_outfile(model_path: Path, file_type: GGMLFileType) -> Path:
     namestr = {
         GGMLFileType.AllF32:    "f32",
         GGMLFileType.MostlyF16: "f16",
+        GGMLFileType.MostlyQ4_0:"q4_0",
         GGMLFileType.MostlyQ8_0:"q8_0",
     }[file_type]
     ret = model_path.parent / f"ggml-model-{namestr}-sorted.gguf"
@@ -326,8 +352,8 @@ Model: TypeAlias = 'dict[str, ReaderTensor]'
 
 
 class OutputFile:
-    def __init__(self, fname_out: Path, endianess:gguf.GGUFEndian = gguf.GGUFEndian.LITTLE) -> None:
-        self.gguf = gguf.GGUFWriter(fname_out, gguf.MODEL_ARCH_NAMES[ARCH], endianess=endianess, align=512)
+    def __init__(self, fname_out: Path, endianess:gguf.GGUFEndian = gguf.GGUFEndian.LITTLE, align:int = 512) -> None:
+        self.gguf = gguf.GGUFWriter(fname_out, gguf.MODEL_ARCH_NAMES[ARCH], endianess=endianess, align=align)
 
     def close(self) -> None:
         self.gguf.close()
@@ -415,8 +441,9 @@ class OutputFile:
         concurrency: int = DEFAULT_CONCURRENCY,
         endianess: gguf.GGUFEndian = gguf.GGUFEndian.LITTLE,
         pad_vocab: bool = False,
+        align: int = 32,
     ) -> None:
-        of = OutputFile(fname_out, endianess=endianess)
+        of = OutputFile(fname_out, endianess=endianess, align=align)
 
         # meta data
         of.add_meta_arch(params)
@@ -454,15 +481,16 @@ def main(args_in: list[str] | None = None) -> None:
     parser.add_argument("--concurrency", type=int,               help=f"concurrency used for conversion (default: {DEFAULT_CONCURRENCY})", default = DEFAULT_CONCURRENCY)
     parser.add_argument("--bigendian",   action="store_true",    help="model is executed on big endian machine")
     parser.add_argument("--padvocab", action="store_true", help="add pad tokens when model vocab expects more than tokenizer metadata provides")
+    parser.add_argument("--align", type=int, default=32, help="alignment for GGUF file (default: 32)")
 
     args = parser.parse_args(args_in)
     
     assert args.model.suffix == '.gguf'
     gguf_src = gguf.GGUFReader(args.model)
     params = Params(gguf_src.fields)
-    print(f"params = {params}")
     vocab = VocabLoader(gguf_src.fields)
     special_vocab = SpecialVocabLoader(gguf_src.fields)
+    print(params)
 
     endianess = gguf.GGUFEndian.LITTLE
     if args.bigendian:
@@ -479,7 +507,8 @@ def main(args_in: list[str] | None = None) -> None:
     model = sort_layers(model)
 
     OutputFile.write_all(outfile, ftype, params, model, vocab, special_vocab,
-                         concurrency = args.concurrency, endianess = endianess, pad_vocab = args.padvocab)
+                         concurrency = args.concurrency, endianess = endianess, 
+                         pad_vocab = args.padvocab, align = args.align)
     print(f"Wrote {outfile}")
 
 if __name__ == '__main__':

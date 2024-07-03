@@ -863,8 +863,9 @@ def check_vocab_size(params: Params, vocab: Vocab, pad_vocab: bool = False) -> N
 
 
 class OutputFile:
-    def __init__(self, fname_out: Path, endianess:gguf.GGUFEndian = gguf.GGUFEndian.LITTLE, align=32) -> None:
+    def __init__(self, fname_out: Path, endianess:gguf.GGUFEndian = gguf.GGUFEndian.LITTLE, align=4096) -> None:
         self.gguf = gguf.GGUFWriter(fname_out, gguf.MODEL_ARCH_NAMES[ARCH], endianess=endianess, align=align)
+        self.align = align
 
     def add_meta_arch(self, params: Params) -> None:
         name = "LLaMA"
@@ -911,6 +912,8 @@ class OutputFile:
 
         if params.ftype is not None:
             self.gguf.add_file_type(params.ftype)
+
+        self.gguf.add_alignment(self.align)
 
     def add_meta_vocab(self, vocab: Vocab) -> None:
         tokens = []
@@ -1224,7 +1227,7 @@ def main(args_in: list[str] | None = None) -> None:
     parser.add_argument("--bigendian",   action="store_true",    help="model is executed on big endian machine")
     parser.add_argument("--padvocab", action="store_true", help="add pad tokens when model vocab expects more than tokenizer metadata provides")
     parser.add_argument("--no-sort", action="store_true")
-    parser.add_argument("--align", type=int, default=32, help="alignment for GGUF file (default: 32)")
+    parser.add_argument("--align", type=int, default=4096, help="alignment for GGUF file (default: 4096)")
     
     args = parser.parse_args(args_in)
     if args.awq_path:
