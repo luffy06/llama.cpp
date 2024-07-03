@@ -290,6 +290,170 @@ static llama_token llama_sampling_sample_impl(
     return id;
 }
 
+#ifdef PREFETCH
+static llama_token* llama_sampling_multiple_tokens_impl(
+                  struct llama_sampling_context * ctx_sampling,
+                  struct llama_context * ctx_main,
+                  struct llama_context * ctx_cfg,
+                  const int idx,
+                  int num) {  // Add a parameter to indicate the number of tokens to sample
+    const llama_sampling_params & params = ctx_sampling->params;
+
+    const int n_vocab = llama_n_vocab(llama_get_model(ctx_main));
+
+    const float   temp            = params.temp;
+    const int32_t penalty_last_n  = params.penalty_last_n < 0 ? params.n_prev : params.penalty_last_n;
+    const float   penalty_repeat  = params.penalty_repeat;
+    const float   penalty_freq    = params.penalty_freq;
+    const float   penalty_present = params.penalty_present;
+    const int     mirostat        = params.mirostat;
+    const float   mirostat_tau    = params.mirostat_tau;
+    const float   mirostat_eta    = params.mirostat_eta;
+    const bool    penalize_nl     = params.penalize_nl;
+
+    auto & prev = ctx_sampling->prev;
+    auto & cur  = ctx_sampling->cur;
+
+    llama_token* ids = new llama_token[num];
+
+    // Get a pointer to the logits
+    float * logits = llama_get_logits_ith(ctx_main, idx);
+
+    // Declare original_logits at the beginning of the function scope
+    std::vector<float> original_logits;
+
+    // apply params.logit_bias map
+    for (auto it = params.logit_bias.begin(); it != params.logit_bias.end(); it++) {
+        logits[it->first] += it->second;
+    }
+
+    cur.clear();
+
+    for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
+        cur.emplace_back(llama_token_data{token_id, logits[token_id], 0.0f});
+    }
+
+    llama_token_data_array cur_p = { cur.data(), cur.size(), false };
+
+    if (ctx_cfg) {
+        llama_sample_classifier_free_guidance(ctx_main, &cur_p, ctx_cfg, params.cfg_scale);
+    }
+
+    // apply penalties
+    const auto& penalty_tokens = params.use_penalty_prompt_tokens ? params.penalty_prompt_tokens : prev;
+    const int penalty_tokens_used_size = std::min((int)penalty_tokens.size(), penalty_last_n);
+    if (penalty_tokens_used_size) {
+        const float nl_logit = logits[llama_token_nl(llama_get_model(ctx_main))];
+
+        llama_sample_repetition_penalties(ctx_main, &cur_p,
+                penalty_tokens.data() + penalty_tokens.size() - penalty_tokens_used_size,
+                penalty_tokens_used_size, penalty_repeat, penalty_freq, penalty_present);
+
+        if (!penalize_nl) {
+            for (size_t idx = 0; idx < cur_p.size; idx++) {
+                if (cur_p.data[idx].id == llama_token_nl(llama_get_model(ctx_main))) {
+                    cur_p.data[idx].logit = nl_logit;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (temp < 0.0) {
+        // greedy sampling, with probs
+        llama_sample_softmax(ctx_main, &cur_p);
+        for (int i = 0; i < num; i++) {
+            ids[i] = cur_p.data[i].id;
+        }
+//        id = cur_p.data[0].id;
+        /*
+        std::string token_str_0 = llama_token_to_piece(ctx_main, id);
+        std::string token_str_1 = llama_token_to_piece(ctx_main, cur_p.data[1].id);
+        std::string token_str_2 = llama_token_to_piece(ctx_main, cur_p.data[2].id);
+        std::string token_str_3 = llama_token_to_piece(ctx_main, cur_p.data[3].id);
+        std::string token_str_4 = llama_token_to_piece(ctx_main, cur_p.data[4].id);
+        std::string token_str_5 = llama_token_to_piece(ctx_main, cur_p.data[5].id);
+        std::string token_str_6 = llama_token_to_piece(ctx_main, cur_p.data[6].id);
+        std::string token_str_7 = llama_token_to_piece(ctx_main, cur_p.data[7].id);
+        std::string token_str_8 = llama_token_to_piece(ctx_main, cur_p.data[8].id);
+        std::string token_str_9 = llama_token_to_piece(ctx_main, cur_p.data[9].id);
+        printf("\nstart %d: %s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s\n", id, token_str_0.c_str(), cur_p.data[1].id, token_str_1.c_str(), cur_p.data[2].id, token_str_2.c_str(), cur_p.data[3].id, token_str_3.c_str(), cur_p.data[4].id, token_str_4.c_str(), cur_p.data[5].id, token_str_5.c_str(), cur_p.data[6].id, token_str_6.c_str(), cur_p.data[7].id, token_str_7.c_str(), cur_p.data[8].id, token_str_8.c_str(), cur_p.data[9].id, token_str_9.c_str());
+        */
+    } else if (temp == 0.0) {
+        // greedy sampling, no prob
+        //id = llama_sample_token_greedy(ctx_main, &cur_p);
+        for (int i = 0; i < num; i++) {
+            ids[i] = llama_sample_token_greedy(ctx_main, &cur_p);
+        }
+    } else {
+        if (mirostat == 1) {
+            const int mirostat_m = 100;
+            llama_sample_temp(ctx_main, &cur_p, temp);
+            //id = llama_sample_token_mirostat(ctx_main, &cur_p, mirostat_tau, mirostat_eta, mirostat_m, &ctx_sampling->mirostat_mu);
+            for (int i = 0; i < num; i++) {
+                ids[i] = llama_sample_token_mirostat(ctx_main, &cur_p, mirostat_tau, mirostat_eta, mirostat_m, &ctx_sampling->mirostat_mu);
+            }
+        } else if (mirostat == 2) {
+            llama_sample_temp(ctx_main, &cur_p, temp);
+            //id = llama_sample_token_mirostat_v2(ctx_main, &cur_p, mirostat_tau, mirostat_eta, &ctx_sampling->mirostat_mu);
+            for (int i = 0; i < num; i++) {
+                ids[i] = llama_sample_token_mirostat_v2(ctx_main, &cur_p, mirostat_tau, mirostat_eta, &ctx_sampling->mirostat_mu);
+            }
+        } else {
+            llama_sample_softmax(ctx_main, &cur_p);
+            for (int i = 0; i < num; i++) {
+                ids[i] = cur_p.data[i].id;
+            }
+            /*
+            std::string token_str_0 = llama_token_to_piece(ctx_main, id);
+            std::string token_str_1 = llama_token_to_piece(ctx_main, cur_p.data[1].id);
+            std::string token_str_2 = llama_token_to_piece(ctx_main, cur_p.data[2].id);
+            std::string token_str_3 = llama_token_to_piece(ctx_main, cur_p.data[3].id);
+            std::string token_str_4 = llama_token_to_piece(ctx_main, cur_p.data[4].id);
+            std::string token_str_5 = llama_token_to_piece(ctx_main, cur_p.data[5].id);
+            std::string token_str_6 = llama_token_to_piece(ctx_main, cur_p.data[6].id);
+            std::string token_str_7 = llama_token_to_piece(ctx_main, cur_p.data[7].id);
+            std::string token_str_8 = llama_token_to_piece(ctx_main, cur_p.data[8].id);
+            std::string token_str_9 = llama_token_to_piece(ctx_main, cur_p.data[9].id);
+            printf("\nstart %d: %s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s %d:%s\n", id, token_str_0.c_str(), cur_p.data[1].id, token_str_1.c_str(), cur_p.data[2].id, token_str_2.c_str(), cur_p.data[3].id, token_str_3.c_str(), cur_p.data[4].id, token_str_4.c_str(), cur_p.data[5].id, token_str_5.c_str(), cur_p.data[6].id, token_str_6.c_str(), cur_p.data[7].id, token_str_7.c_str(), cur_p.data[8].id, token_str_8.c_str(), cur_p.data[9].id, token_str_9.c_str());
+            */
+            // temperature sampling
+            //size_t min_keep = std::max(1, params.n_probs);
+
+            //sampler_queue(ctx_main, params, cur_p, min_keep);
+
+            //id = llama_sample_token(ctx_main, &cur_p);
+            
+            // Print the top 10 candidates
+            //{
+            //    const int n_top = 10;
+            //    LOG("top %d candidates:\n", n_top);
+
+            //    for (int i = 0; i < n_top; i++) {
+            //        const llama_token id = cur_p.data[i].id;
+            //        (void)id; // To avoid a warning that id is unused when logging is disabled.
+            //        LOG(" - %5d: '%12s' (%.3f)\n", id, llama_token_to_piece(ctx_main, id).c_str(), cur_p.data[i].p);
+            //    }
+            //}
+
+            //LOG("sampled token: %5d: '%s'\n", id, llama_token_to_piece(ctx_main, id).c_str());
+        }
+    }
+
+    return ids;
+}
+
+llama_token* llama_sampling_multiple_tokens(
+                  struct llama_sampling_context * ctx_sampling,
+                  struct llama_context * ctx_main,
+                  struct llama_context * ctx_cfg,
+                  const int idx,
+                  int num) {
+    // Call the implementation function with is_resampling set to false by default
+    return llama_sampling_multiple_tokens_impl(ctx_sampling, ctx_main, ctx_cfg, idx, num);
+}
+#endif
+
 llama_token llama_sampling_sample(
                   struct llama_sampling_context * ctx_sampling,
                   struct llama_context * ctx_main,

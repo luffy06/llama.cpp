@@ -110,6 +110,15 @@ llama_token llama_sampling_sample(
         struct llama_context * ctx_cfg,
         int idx = 0);
 
+#ifdef PREFETCH
+llama_token* llama_sampling_multiple_tokens(
+        struct llama_sampling_context * ctx_sampling,
+        struct llama_context * ctx_main,
+        struct llama_context * ctx_cfg,
+        int idx = 0,
+        int n = 1);
+#endif
+
 void llama_sampling_accept(
         struct llama_sampling_context * ctx_sampling,
         struct llama_context * ctx_main,

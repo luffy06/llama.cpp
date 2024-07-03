@@ -32,7 +32,8 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 #include "ggml-alloc.h"
-int global_file;
+int global_file = 0;
+int global_tiny_file = 0;
 ggml_tallocr_t global_alloc;
 int prefetch_no_mmap = 0;
 uint16_t prefetch_status = 0;
@@ -3358,19 +3359,19 @@ void ggml_prefetch_tensor(struct ggml_tensor * tensor) {
         for (size_t k = 0; k < size; k += BLOCK_SIZE)
             tmp_sum += ((uint8_t *)tensor->data)[k];
     } else { 
-        while (ggml_tallocr_get_available(global_alloc) < ggml_nbytes(tensor) * 3) {
+        while (ggml_tallocr_get_available(global_alloc) < ggml_nbytes(tensor) * 2) {
             //printf("waiting for available memory\n");
         }
         if (tensor->data != NULL)
             return;
         while (tensor->data == NULL)
             ggml_tallocr_alloc(global_alloc, tensor);
-        int ret = pread(global_file, tensor->data, ggml_nbytes(tensor), tensor->off);
+        int ret = pread(*(int*)(tensor->extra), tensor->data, ggml_nbytes(tensor), tensor->off);
         if (ret == -1) {
-            printf("async read error: %s %d %p %lu\n", strerror(errno), global_file, tensor->data, ggml_nbytes(tensor));
+            printf("async read error: %s %d %p %lu\n", strerror(errno), *(int*)(tensor->extra), tensor->data, ggml_nbytes(tensor));
         }
         if (ret != ggml_nbytes(tensor)) {
-            printf("read_error: %d %s %d %p %lu %lu\n", ret, tensor->name, global_file, tensor->data, ggml_nbytes(tensor), tensor->off);
+            printf("read_error: %d %s %d %p %lu %lu\n", ret, tensor->name, *(int*)(tensor->extra), tensor->data, ggml_nbytes(tensor), tensor->off);
         }
     }
 }
@@ -16613,23 +16614,58 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
             //bool need_read = false;
             // distribute new work or execute it direct if 1T
             while (++node_n < cgraph->n_nodes) {
+                if (node_n > 0) {
+#ifdef PREFETCH
+#ifdef SYNC_READ
+                    if (prefetch_no_mmap == 1 || prefetch_no_mmap == 2) {
+#else
+                    if (prefetch_no_mmap == 1 && num_layers > 30) {
+#endif
+                        struct ggml_tensor * free_node = cgraph->nodes[node_n-1];
+                        for (int i = 0; i < GGML_MAX_SRC; i++) {
+                            if (free_node->src[i] != NULL) {
+                                if (free_node->src[i]->is_param == 1) {
+#ifdef DEBUG
+                                   printf("free %s data = %p size = %d\n", free_node->src[i]->name, free_node->src[i]->data, ggml_nbytes(free_node->src[i]));
+#endif
+                                    ggml_tallocr_free_my_tensor(global_alloc, free_node->src[i]);
+                                    free_node->src[i]->data = NULL;
+                                }
+                            } else
+                                break;
+                        }
+                    } else {
+                        if (atomic_load_prefetch(&forward_status) == 0) {
+                            atomic_increase_prefetch(&forward_status);
+                        }
+                    }
+#endif
+                }
                 GGML_PRINT_DEBUG_5("%s: %d/%d\n", __func__, node_n, cgraph->n_nodes);
                 struct ggml_tensor * node = cgraph->nodes[node_n];
 #ifdef PREFETCH
-                if (prefetch_no_mmap == 1) {
+                if (prefetch_no_mmap == 1 && num_layers > 30) {
                     int layer = ggml_get_layer_index(node, 0);
+#ifdef DEBUG
+                    printf("forward node = %s layer = %d prefetch_status = %d forward_status = %d %p\n", node->name, layer, prefetch_status, forward_status, pthread_self());
+#endif
                     while (layer == atomic_load_prefetch(&prefetch_status)) {};
                     if (layer != -1 && layer != atomic_load_prefetch(&forward_status)) {
                         atomic_store_prefetch(&forward_status, layer);
                     }
+
                 }
 #ifdef SYNC_READ
-                if (prefetch_no_mmap == 2)
+                if (prefetch_no_mmap == 2 || num_layers <= 30)
                     for (int i = 0; i < GGML_MAX_SRC; i++) {
                         if (node->src[i] != NULL) {
                             if (node->src[i]->is_param == 1 && node->src[i]->data == NULL) {
                                 ggml_tallocr_alloc(global_alloc, node->src[i]);
-                                int ret = pread(global_file, node->src[i]->data, ggml_nbytes(node->src[i]), node->src[i]->off);
+                                int ret;
+                                if (num_layers <= 30)
+                                    ret = pread(global_tiny_file, node->src[i]->data, ggml_nbytes(node->src[i]), node->src[i]->off);
+                                else 
+                                    ret = pread(global_file, node->src[i]->data, ggml_nbytes(node->src[i]), node->src[i]->off);
                                 if (ret != ggml_nbytes(node->src[i])) {
                                     fprintf(stderr, "read error %d\n", ret);
                                     exit(1);
@@ -16668,31 +16704,6 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 } else {
                     break;
                 }
-#ifdef PREFETCH
-#ifdef SYNC_READ
-                if (prefetch_no_mmap == 1 || prefetch_no_mmap == 2) {
-#else
-                if (prefetch_no_mmap == 1) {
-#endif
-                    struct ggml_tensor * free_node = cgraph->nodes[node_n];
-                    for (int i = 0; i < GGML_MAX_SRC; i++) {
-                        if (free_node->src[i] != NULL) {
-                            if (free_node->src[i]->is_param == 1) {
-#ifdef DEBUG
-                                printf("free %s data = %p size = %d\n", free_node->src[i]->name, free_node->src[i]->data, ggml_nbytes(free_node->src[i]));
-#endif
-                                ggml_tallocr_free_my_tensor(global_alloc, free_node->src[i]);
-                                free_node->src[i]->data = NULL;
-                            }
-                        } else
-                            break;
-                    }
-                } else {
-                    if (atomic_load_prefetch(&forward_status) == 0) {
-                        atomic_increase_prefetch(&forward_status);
-                    }
-                }
-#endif
                 if (cplan->abort_callback && cplan->abort_callback(cplan->abort_callback_data)) {
                     break;
                 }
@@ -16934,7 +16945,7 @@ int ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan, s
         }
     }
 
-    const int n_threads = 1; // cplan->n_threads;
+    const int n_threads = cplan->n_threads;
 
     struct ggml_compute_state_shared state_shared = {
         /*.cgraph                  =*/ cgraph,

@@ -28,7 +28,9 @@ int main(int argc, char ** argv) {
     if (gpt_params_parse(argc, argv, params) == false) {
         return 1;
     }
-
+#ifdef PREFETCH
+    params.use_mmap = 0;
+#endif
     if (params.model_draft.empty()) {
         fprintf(stderr, "%s: error: --model-draft is required\n", __func__);
         return 1;
@@ -61,7 +63,9 @@ int main(int argc, char ** argv) {
     // load the target model
     params.logits_all = true;
     std::tie(model_tgt, ctx_tgt) = llama_init_from_gpt_params(params);
-
+#ifdef PREFETCH
+    params.use_mmap = 1;
+#endif
     // load the draft model
     params.model = params.model_draft;
     params.n_gpu_layers = params.n_gpu_layers_draft;
@@ -147,7 +151,9 @@ int main(int argc, char ** argv) {
     int n_predict = 0;
     int n_drafted = 0;
     int n_accept  = 0;
-
+#ifdef PREFETCH
+    int n_drafts  = 0;
+#endif
     int n_past_tgt = inp.size();
     int n_past_dft = inp.size();
 
@@ -201,7 +207,11 @@ int main(int argc, char ** argv) {
 
             //LOG("last: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx_tgt, ctx_sampling->prev).c_str());
 
+#ifdef PREFETCH
+            std::string token_str = llama_token_to_piece(ctx_tgt, id);
+#else
             const std::string token_str = llama_token_to_piece(ctx_tgt, id);
+#endif
 
             if (!params.use_color) {
                 printf("%s", token_str.c_str());
@@ -232,6 +242,24 @@ int main(int argc, char ** argv) {
                     }
                 }
 
+#ifdef PREFETCH
+                /*
+                if (!matches && n_seq_dft == 1 && i_dft < (int) drafts[0].tokens.size()) {
+                    // sample n tokens from the target model
+                    int n = 1;
+                    llama_token* ids = llama_sampling_multiple_tokens(ctx_sampling, ctx_tgt, NULL, drafts[s_keep].i_batch_tgt[i_dft], n);
+                    for (int i = 0; i < n; ++i) {
+                        if (ids[i] == drafts[0].tokens[i_dft]) {
+                            LOG("the sampled target token matches the %dth drafted token of sequence %d (%d, '%s') - accepted\n", i_dft, s_keep, id, token_str.c_str());
+                            id = drafts[0].tokens[i_dft];
+                            token_str = llama_token_to_piece(ctx_tgt, id);
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+                */
+#endif
                 if (matches) {
                     ++n_accept;
                     ++n_past_tgt;
@@ -308,6 +336,9 @@ int main(int argc, char ** argv) {
         llama_batch_add  (batch_tgt, drafts[0].tokens[0], n_past_tgt, { 0 }, true);
 
         // sample n_draft tokens from the draft model using tree-based sampling
+#ifdef PREFETCH
+        n_drafts ++;
+#endif
         for (int i = 0; i < n_draft; ++i) {
             batch_dft.n_tokens = 0;
 
@@ -449,6 +480,10 @@ int main(int argc, char ** argv) {
     LOG_TEE("n_draft   = %d\n", n_draft);
     LOG_TEE("n_predict = %d\n", n_predict);
     LOG_TEE("n_drafted = %d\n", n_drafted);
+#ifdef PREFETCH
+    LOG_TEE("n_drafts  = %d\n", n_drafts);
+    LOG_TEE("avg_draft = %.3f\n", (float) n_drafted / n_drafts);
+#endif 
     LOG_TEE("n_accept  = %d\n", n_accept);
     LOG_TEE("accept    = %.3f%%\n", 100.0f * n_accept / n_drafted);
 
