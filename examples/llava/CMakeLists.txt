@@ -24,13 +24,15 @@ endif()
 
 if (NOT MSVC)
     target_compile_options(llava PRIVATE -Wno-cast-qual) # stb_image.h
-    endif()
+endif()
+
 if(TARGET BUILD_INFO)
     add_dependencies(llava BUILD_INFO)
 endif()
 
-set(TARGET llava-cli)
-add_executable(llava-cli llava-cli.cpp)
-install(TARGETS llava-cli RUNTIME)
-target_link_libraries(llava-cli PRIVATE common llama llava ${CMAKE_THREAD_LIBS_INIT})
-target_compile_features(llava PRIVATE cxx_std_11)
+set(TARGET llama-llava-cli)
+add_executable(${TARGET} llava-cli.cpp)
+set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME llama-llava-cli)
+install(TARGETS ${TARGET} RUNTIME)
+target_link_libraries(${TARGET} PRIVATE common llava ${CMAKE_THREAD_LIBS_INIT})
+target_compile_features(${TARGET} PRIVATE cxx_std_11)
