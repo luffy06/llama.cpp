@@ -81,13 +81,13 @@ class GGUFWriter:
 
     def __init__(
         self, path: os.PathLike[str] | str | None, arch: str, use_temp_file: bool = False, endianess: GGUFEndian = GGUFEndian.LITTLE,
-        split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False, small_first_shard: bool = False
+        split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False, small_first_shard: bool = False, align: int | None = None,
     ):
         self.fout = None
         self.path = Path(path) if path else None
         self.arch = arch
         self.endianess = endianess
-        self.data_alignment = GGUF_DEFAULT_ALIGNMENT
+        self.data_alignment = GGUF_DEFAULT_ALIGNMENT if align is None else align
         self.use_temp_file = use_temp_file
         self.temp_file = None
         self.tensors = [{}]
@@ -218,7 +218,10 @@ class GGUFWriter:
 
     def add_key_value(self, key: str, val: Any, vtype: GGUFValueType) -> None:
         if any(key in kv_data for kv_data in self.kv_data):
-            raise ValueError(f'Duplicated key name {key!r}')
+            # raise ValueError(f'Duplicated key name {key!r}')
+            import warnings
+            warnings.warn(f'Duplicated key name {key!r}')
+            warnings.warn(f'Changing\n{self.kv_data[0][key].value}\nto\n{val}')
 
         self.kv_data[0][key] = GGUFValue(value=val, type=vtype)
 
