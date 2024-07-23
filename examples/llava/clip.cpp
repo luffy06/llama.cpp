@@ -1895,7 +1895,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         free(positions_data);
     }
 
-    ggml_graph_compute(gf, &plan, 0, NULL);
     {
         struct ggml_tensor * patches = ggml_graph_get_tensor(gf, "patches");
         int* patches_data = (int*)malloc(ggml_nbytes(patches));

@@ -178,14 +178,11 @@
 #ifdef PREFETCH
 
 #define SYNC_READ
-//#define MLOCK_KV
-//#define MLOCK_BUFFER
-
 //#define DEBUG
 
 #define THREAD_NUM 4
-#define PREFETCH_SIZE 0.3
-#define LOCK_SIZE 1.4
+#define AVAIL_MEM 2.0
+#define CTX_SIZE 512
 
 #define BLOCK_SIZE 4096
 
@@ -194,6 +191,7 @@
 #define atomic_increase_prefetch(ptr) __sync_fetch_and_add(ptr, 1)
 #define atomic_add_prefetch(ptr, val) __sync_fetch_and_add(ptr, val)
 #define atomic_sub_prefetch(ptr, val) __sync_fetch_and_sub(ptr, val)
+#define atomic_cas_prefetch(ptr, old, new) __sync_bool_compare_and_swap(ptr, old, new)
 
 #endif
 
@@ -636,9 +634,9 @@ extern "C" {
 
 #ifdef PREFETCH
         uint64_t off;
-#else
-        char padding[8];
+        uint64_t need_prefetch;
 #endif
+        //char padding[8];
     };
 
     static const size_t GGML_TENSOR_SIZE = sizeof(struct ggml_tensor);
@@ -877,7 +875,7 @@ extern "C" {
     GGML_API struct ggml_tensor * ggml_format_name(      struct ggml_tensor * tensor, const char * fmt, ...);
 
 #ifdef PREFETCH
-    GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor, bool is_param);
+    GGML_API size_t     ggml_get_layer_index(const struct ggml_tensor * tensor, int is_param);
     GGML_API void       ggml_prefetch_tensor(      struct ggml_tensor * tensor);
     GGML_API void       ggml_mlock_tensor   (      struct ggml_tensor * tensor);
 #endif
@@ -2039,8 +2037,8 @@ extern "C" {
 
     // ggml_graph_plan() has to be called before ggml_graph_compute()
     // when plan.work_size > 0, caller must allocate memory for plan.work_data
-    GGML_API struct ggml_cplan ggml_graph_plan   (struct ggml_cgraph * cgraph, int n_threads /*= GGML_DEFAULT_N_THREADS*/);
-    GGML_API int               ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan, size_t num_layers, struct ggml_tensor** weights);
+    GGML_API struct ggml_cplan ggml_graph_plan            (const struct ggml_cgraph * cgraph, int n_threads /*= GGML_DEFAULT_N_THREADS*/);
+    GGML_API enum ggml_status  ggml_graph_compute         (      struct ggml_cgraph * cgraph, struct ggml_cplan * cplan);
 
     // same as ggml_graph_compute() but the work data is allocated as a part of the context
     // note: the drawback of this API is that you must have ensured that the context has enough memory for the work data

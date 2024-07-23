@@ -17,6 +17,12 @@
 //#define AT_PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #define AT_PRINTF(...)
 
+#ifdef PREFETCH
+size_t avail_mem;
+size_t kv_cache_size;
+ggml_tallocr_t global_alloc;
+uint16_t alloc_lock = 0;
+#endif
 
 static bool ggml_is_view(const struct ggml_tensor * t) {
     return t->view_src != NULL;
@@ -80,6 +86,11 @@ struct ggml_tallocr ggml_tallocr_new(ggml_backend_buffer_t buffer) {
         /*.base      = */ base,
         /*.alignment = */ align,
         /*.offset    = */ aligned_offset(base, 0, align),
+#ifdef PREFETCH
+        /* buffer_cache  = */ {{0}},
+        /* buffer_cache_size = */ {0},
+        /* buffer_cache_index = */ {0},
+#endif
     };
     return talloc;
 }
@@ -87,7 +98,25 @@ struct ggml_tallocr ggml_tallocr_new(ggml_backend_buffer_t buffer) {
 void ggml_tallocr_alloc(struct ggml_tallocr * talloc, struct ggml_tensor * tensor) {
     size_t size = ggml_backend_buffer_get_alloc_size(talloc->buffer, tensor);
     size = GGML_PAD(size, talloc->alignment);
-
+#ifdef PREFETCH
+    if (talloc->buffer_cache_size[0] != 0) {
+        for (int i = 0; i < 10; i++) {
+            if (talloc->buffer_cache_size[i] == size) {
+                while (!atomic_cas_prefetch(&alloc_lock, 0, 1)) {}
+                if (talloc->buffer_cache_index[i] == 0) {            
+                    atomic_store_prefetch(&alloc_lock, 0);
+                    break;
+                }
+                void* ptr = talloc->buffer_cache[i][talloc->buffer_cache_index[i] - 1];
+                talloc->buffer_cache_index[i] = (talloc->buffer_cache_index[i] - 1) % 100;
+                tensor->buffer = talloc->buffer;
+                tensor->data = ptr;
+                atomic_store_prefetch(&alloc_lock, 0);
+                return;
+            }
+        }
+    }
+#endif
     if (talloc->offset + size > ggml_backend_buffer_get_size(talloc->buffer)) {
         fprintf(stderr, "%s: not enough space in the buffer to allocate %s (needed %zu, available %zu)\n",
                 __func__, tensor->name, size, ggml_backend_buffer_get_size(talloc->buffer) - talloc->offset);
@@ -99,9 +128,34 @@ void ggml_tallocr_alloc(struct ggml_tallocr * talloc, struct ggml_tensor * tenso
     talloc->offset += size;
 
     assert(((uintptr_t)addr % talloc->alignment) == 0);
-
     ggml_backend_tensor_alloc(talloc->buffer, tensor, addr);
 }
+
+#ifdef PREFETCH
+GGML_API void ggml_tallocr_free(struct ggml_tallocr * talloc, struct ggml_tensor * tensor) {
+    size_t size = ggml_backend_buffer_get_alloc_size(talloc->buffer, tensor);
+    size = GGML_PAD(size, talloc->alignment);
+    void* ptr = tensor->data;
+    tensor->data = NULL;
+    while (!atomic_cas_prefetch(&alloc_lock, 0, 1)) {}
+    for (int i = 0; i < 10; i++) {
+        if (talloc->buffer_cache_size[i] == 0) {
+            talloc->buffer_cache_size[i] = size;    
+            talloc->buffer_cache[i][0] = ptr;
+            talloc->buffer_cache_index[i] = 1;
+            atomic_store_prefetch(&alloc_lock, 0);
+            return;
+        }
+        if (talloc->buffer_cache_size[i] == size) {
+            talloc->buffer_cache[i][talloc->buffer_cache_index[i]] = ptr;
+            talloc->buffer_cache_index[i] = (talloc->buffer_cache_index[i] + 1) % 100;
+            atomic_store_prefetch(&alloc_lock, 0);
+            return;
+        }
+    }
+    GGML_ASSERT(!"out of buffer cache");
+}
+#endif
 
 // dynamic tensor allocator
 
@@ -538,6 +592,7 @@ static void ggml_gallocr_allocate_node(ggml_gallocr_t galloc, struct ggml_tensor
         size_t offset = ggml_dyn_tallocr_alloc(alloc, size, node);
         hn->buffer_id = buffer_id;
         hn->offset = offset;
+    
         return;
     }
 }
@@ -800,6 +855,10 @@ static void ggml_gallocr_init_tensor(ggml_gallocr_t galloc, struct ggml_tensor *
             ggml_backend_view_init(tensor);
         }
     } else {
+#ifdef PREFETCH
+        if (tensor->need_prefetch)
+            return;
+#endif
         if (tensor->data == NULL) {
             assert(tensor_alloc->offset != SIZE_MAX);
             assert(ggml_backend_buffer_get_alloc_size(galloc->buffers[buffer_id], tensor) <= tensor_alloc->size_max);
@@ -817,6 +876,10 @@ static void ggml_gallocr_init_tensor(ggml_gallocr_t galloc, struct ggml_tensor *
 
 static bool ggml_gallocr_node_needs_realloc(ggml_gallocr_t galloc, struct ggml_tensor * node, struct tensor_alloc * talloc) {
     ggml_backend_buffer_type_t buft = talloc->buffer_id != -1 ? galloc->bufts[talloc->buffer_id] : NULL;
+#ifdef PREFETCH
+    if (node->need_prefetch)
+        return true;
+#endif
     size_t node_size = (node->data || node->view_src) ? 0 : ggml_backend_buft_get_alloc_size(buft, node);
     return talloc->size_max >= node_size;
 }
@@ -851,12 +914,12 @@ static bool ggml_gallocr_needs_realloc(ggml_gallocr_t galloc, struct ggml_cgraph
             struct ggml_tensor * src = node->src[j];
             if (src == NULL) {
                 continue;
-            }
+            }     
             if (!ggml_gallocr_node_needs_realloc(galloc, src, &node_alloc->src[j])) {
 #ifndef NDEBUG
                 fprintf(stderr, "%s: src %d (%s) of node %s is not valid\n", __func__, j, src->name, node->name);
 #endif
-                return true;
+                
             }
         }
     }
@@ -887,7 +950,6 @@ bool ggml_gallocr_alloc_graph(ggml_gallocr_t galloc, struct ggml_cgraph * graph)
             ggml_backend_buffer_reset(galloc->buffers[i]);
         }
     }
-
     // allocate the graph tensors from the previous assignments
     // leafs
     for (int i = 0; i < graph->n_leafs; i++) {
@@ -936,6 +998,10 @@ static bool alloc_tensor_range(struct ggml_context * ctx,
         struct ggml_tensor * first, struct ggml_tensor * last,
         ggml_backend_buffer_type_t buft, size_t size,
         ggml_backend_buffer_t ** buffers, size_t * n_buffers) {
+#ifdef PREFETCH
+    if (global_alloc == NULL && avail_mem != 0)
+        size = avail_mem;
+#endif 
     ggml_backend_buffer_t buffer = ggml_backend_buft_alloc_buffer(buft, size);
     if (buffer == NULL) {
 #ifndef NDEBUG
@@ -947,13 +1013,36 @@ static bool alloc_tensor_range(struct ggml_context * ctx,
         free(*buffers);
         return false;
     }
+#ifdef PREFETCH
+    struct ggml_tallocr tallocr;
+    if (global_alloc == NULL) { 
+        void * base = ggml_backend_buffer_get_base(buffer);
+        size_t align = ggml_backend_buffer_get_alignment(buffer);
 
+        assert(align && !(align & (align - 1))); // power of 2
+        global_alloc = malloc(sizeof(struct ggml_tallocr));
+        global_alloc->buffer = buffer;
+        global_alloc->base = base;
+        global_alloc->alignment = align;
+        global_alloc->offset = aligned_offset(base, 0, align);
+        for (int i = 0; i < 10; i++) {
+            global_alloc->buffer_cache_size[i] = 0;
+            global_alloc->buffer_cache_index[i] = 0;
+        }
+    } else
+        tallocr = ggml_tallocr_new(buffer);
+#else
     struct ggml_tallocr tallocr = ggml_tallocr_new(buffer);
-
+#endif
     for (struct ggml_tensor * t = first; t != last; t = ggml_get_next_tensor(ctx, t)) {
         if (t->data == NULL) {
             if (t->view_src == NULL) {
-                ggml_tallocr_alloc(&tallocr, t);
+#ifdef PREFETCH
+                if (size == avail_mem)
+                    t->buffer = buffer;
+                else
+#endif
+               ggml_tallocr_alloc(&tallocr, t);
             } else if (t->buffer == NULL) {
                 ggml_backend_view_init(t);
             }

@@ -542,7 +542,12 @@ ggml_backend_buffer_t ggml_backend_reg_alloc_buffer(size_t i, size_t size) {
 
 // backend CPU
 
-static const size_t TENSOR_ALIGNMENT = 32; // required for mmap as gguf only guarantees 32-byte alignment
+#ifdef PREFETCH
+static const size_t TENSOR_ALIGNMENT = 4096; // should be enough for AVX 512
+#else
+static const size_t TENSOR_ALIGNMENT = 4096; // should be enough for AVX 512
+//static const size_t TENSOR_ALIGNMENT = 32; // required for mmap as gguf only guarantees 32-byte alignment
+#endif
 
 GGML_CALL static const char * ggml_backend_cpu_buffer_name(ggml_backend_buffer_t buffer) {
     return "CPU";
@@ -2024,7 +2029,9 @@ void ggml_backend_view_init(struct ggml_tensor * tensor) {
 }
 
 void ggml_backend_tensor_alloc(ggml_backend_buffer_t buffer, struct ggml_tensor * tensor, void * addr) {
+#ifndef PREFETCH 
     GGML_ASSERT(tensor->buffer == NULL);
+#endif
     GGML_ASSERT(tensor->data == NULL);
     GGML_ASSERT(tensor->view_src == NULL);
     GGML_ASSERT(addr >= ggml_backend_buffer_get_base(buffer));
@@ -2033,7 +2040,9 @@ void ggml_backend_tensor_alloc(ggml_backend_buffer_t buffer, struct ggml_tensor 
 
     tensor->buffer = buffer;
     tensor->data = addr;
+#ifndef PREFETCH
     ggml_backend_buffer_init_tensor(buffer, tensor);
+#endif
 }
 
 static struct ggml_tensor * graph_copy_dup_tensor(struct ggml_hash_set hash_set, struct ggml_tensor ** node_copies,

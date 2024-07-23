@@ -586,7 +586,7 @@ struct test_case {
         ggml_build_forward_expand(gf, out);
 
         // warmup run
-        ggml_backend_graph_compute(backend, gf, 0, NULL);
+        ggml_backend_graph_compute(backend, gf);
 
         // duplicate the op
         size_t target_size = ggml_backend_is_cpu(backend) ? 1ULL << 33 : 1ULL << 35; // 8 GB CPU, 32 GB GPU
@@ -618,7 +618,7 @@ struct test_case {
         ggml_backend_synchronize(backend);
 
         int64_t start_time = ggml_time_us();
-        ggml_backend_graph_compute(backend, gf, 0, NULL);
+        ggml_backend_graph_compute(backend, gf);
         ggml_backend_synchronize(backend);
         int64_t end_time = ggml_time_us();
         double time_us = end_time - start_time;

@@ -281,15 +281,12 @@ extern "C" {
         bool vocab_only; // only load the vocabulary, no weights
         bool use_mmap;   // use mmap if possible
         bool use_mlock;  // force system to keep model in RAM
+        bool check_tensors; // validate model tensor data
 #ifdef PREFETCH
         int32_t thread_num;
-        float prefetch_size;
-        float lock_size;
+        float available_mem;
+        int32_t ctx_size;
 #endif
-        bool vocab_only;    // only load the vocabulary, no weights
-        bool use_mmap;      // use mmap if possible
-        bool use_mlock;     // force system to keep model in RAM
-        bool check_tensors; // validate model tensor data
     };
 
     // NOTE: changing the default values of parameters marked as [EXPERIMENTAL] may cause crashes or incorrect results in certain configurations

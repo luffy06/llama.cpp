@@ -277,7 +277,6 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
 
 bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_params & params, int & i, bool & invalid_param) {
     const char split_delim = ',';
-
     llama_sampling_params & sparams = params.sparams;
 
     if (arg == "-s" || arg == "--seed") {
@@ -375,22 +374,6 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         if (!params.prompt.empty() && params.prompt.back() == '\n') {
             params.prompt.pop_back();
         }
-        } else if (arg == "-pf" || arg == "--prompt-file") {
-            if (++i >= argc) {
-                invalid_param = true;
-                break;
-            }
-            std::ifstream file(argv[i]);
-            if (!file) {
-                fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
-                invalid_param = true;
-                break;
-            }
-            std::string prompt;
-            while (std::getline(file, prompt)) {
-                params.prompt_list.push_back(prompt);
-            }
-        return true;
     }
     if (arg == "--in-file") {
         CHECK_ARG
@@ -794,28 +777,20 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "--mlock") {
         params.use_mlock = true;
-#ifdef PREFETCH
-        } else if (arg == "-ptn" || arg == "--prefetch-thread-num") {
-            if (++i >= argc) {
-                invalid_param = true;
-                break;
-            }
-            params.thread_num = std::stoi(argv[i]);
-        } else if (arg == "-pfz" || arg == "--prefetch-size") {
-            if (++i >= argc) {
-                invalid_param = true;
-                break;
-            }
-            params.prefetch_size = std::stof(argv[i]);
-        } else if (arg == "-lsize" || arg == "--lock-size") {
-            if (++i >= argc) {
-                invalid_param = true;
-                break;
-            }
-            params.lock_size = std::stof(argv[i]);
-#endif
         return true;
     }
+#ifdef PREFETCH
+    if (arg == "-tp" || arg == "--threads_prefetch") {
+        CHECK_ARG
+        params.n_threads_prefetch = std::stoi(argv[i]);
+        return true;
+    }
+    if (arg == "-am" || arg == "--available_memory") {
+        CHECK_ARG
+        params.available_mem = std::stof(argv[i]);
+        return true;
+    }  
+#endif
     if (arg == "-ngl" || arg == "--gpu-layers" || arg == "--n-gpu-layers") {
         CHECK_ARG
         params.n_gpu_layers = std::stoi(argv[i]);
@@ -2127,10 +2102,11 @@ struct llama_model_params llama_model_params_from_gpt_params(const gpt_params & 
     mparams.tensor_split    = params.tensor_split;
     mparams.use_mmap        = params.use_mmap;
     mparams.use_mlock       = params.use_mlock;
+    mparams.check_tensors   = params.check_tensors;
 #ifdef PREFETCH
-    mparams.thread_num      = params.thread_num;
-    mparams.prefetch_size   = params.prefetch_size;
-    mparams.lock_size       = params.lock_size;
+    mparams.thread_num      = params.n_threads_prefetch;
+    mparams.available_mem   = params.available_mem;
+    mparams.ctx_size        = params.n_ctx;
 #endif
     if (params.kv_overrides.empty()) {
         mparams.kv_overrides = NULL;

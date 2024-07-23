@@ -426,7 +426,7 @@ static llama_token_data_array llama_sampling_prepare_impl(
     return cur_p;
 }
 
-#ifdef PREFETCH
+#ifdef MULTIPLE_TOKEN
 static llama_token* llama_sampling_multiple_tokens_impl(
                   struct llama_sampling_context * ctx_sampling,
                   struct llama_context * ctx_main,

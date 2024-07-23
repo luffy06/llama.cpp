@@ -173,9 +173,8 @@ struct gpt_params {
     bool use_mmap          = true;  // use mmap for faster loads
     bool use_mlock         = false; // use mlock to keep model in memory
 #ifdef PREFETCH
-    uint32_t thread_num       = THREAD_NUM;
-    float prefetch_size       = PREFETCH_SIZE;
-    float lock_size           = LOCK_SIZE;
+    size_t n_threads_prefetch = THREAD_NUM;
+    float available_mem    = AVAIL_MEM;   
 #endif
     bool verbose_prompt    = false; // print prompt tokens before generation
     bool display_prompt    = true;  // print prompt before generation

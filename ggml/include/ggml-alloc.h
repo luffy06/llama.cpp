@@ -16,10 +16,18 @@ struct ggml_tallocr {
     void * base;
     size_t alignment;
     size_t offset;
+#ifdef PREFETCH
+    void* buffer_cache[10][100];
+    size_t buffer_cache_size[10];
+    size_t buffer_cache_index[10];
+#endif
 };
 
 GGML_API struct ggml_tallocr ggml_tallocr_new(ggml_backend_buffer_t buffer);
 GGML_API void                ggml_tallocr_alloc(struct ggml_tallocr * talloc, struct ggml_tensor * tensor);
+#ifdef PREFETCH
+GGML_API void                ggml_tallocr_free(struct ggml_tallocr * talloc, struct ggml_tensor * tensor);
+#endif
 
 // Graph allocator
 /*
@@ -44,10 +52,15 @@ GGML_API void                ggml_tallocr_alloc(struct ggml_tallocr * talloc, st
 //   ggml_set_output(): output tensors are never freed and never overwritten
 
 typedef struct ggml_gallocr * ggml_gallocr_t;
+typedef struct ggml_tallocr * ggml_tallocr_t;
 
 GGML_API ggml_gallocr_t ggml_gallocr_new(ggml_backend_buffer_type_t buft);
 GGML_API ggml_gallocr_t ggml_gallocr_new_n(ggml_backend_buffer_type_t * bufts, int n_bufs);
 GGML_API void           ggml_gallocr_free(ggml_gallocr_t galloc);
+
+#ifdef PREFETCH
+GGML_API void   ggml_tallocr_free_my_tensor(ggml_tallocr_t alloc, struct ggml_tensor * tensor);
+#endif
 
 // pre-allocate buffers from a measure graph - does not allocate or modify the graph
 // call with a worst-case graph to avoid buffer reallocations

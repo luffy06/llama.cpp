@@ -128,7 +128,6 @@ static std::string chat_add_and_format(struct llama_model * model, std::vector<l
 int main(int argc, char ** argv) {
     gpt_params params;
     g_params = &params;
-
     if (!gpt_params_parse(argc, argv, params)) {
         gpt_params_print_usage(argc, argv, params);
         return 1;
@@ -712,6 +711,7 @@ int main(int argc, char ** argv) {
         } else {
             // some user input remains from prompt or interaction, forward it to processing
             LOG("embd_inp.size(): %d, n_consumed: %d\n", (int) embd_inp.size(), n_consumed);
+
             while ((int) embd_inp.size() > n_consumed) {
                 embd.push_back(embd_inp[n_consumed]);
 
@@ -733,7 +733,7 @@ int main(int argc, char ** argv) {
 
                 // Console/Stream Output
                 fprintf(stdout, "%s", token_str.c_str());
-
+                
                 // Record Displayed Tokens To Log
                 // Note: Generated tokens are created one by one hence this check
                 if (embd.size() > 1) {
@@ -744,11 +744,9 @@ int main(int argc, char ** argv) {
                     output_tokens.push_back(id);
                     output_ss << token_str;
                 }
-
                 fflush(stdout);
             }
         }
-
         // reset color to default if there is no pending user input
         if (input_echo && (int) embd_inp.size() == n_consumed) {
             console::set_display(console::reset);
