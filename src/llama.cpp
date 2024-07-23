@@ -2501,7 +2501,7 @@ struct llama_kv_cache {
     std::vector<struct ggml_context *> ctxs;
     std::vector<ggml_backend_buffer_t> bufs;
 
-    size_t n_bytes() const {
+    size_t total_size() const {
         size_t size = 0;
         for (ggml_backend_buffer_t buf : bufs) {
             size += ggml_backend_buffer_get_size(buf);
@@ -7291,7 +7291,7 @@ static bool llm_load_tensors(
     size_t n_max_backend_buffer = ctx_map.size() * ml.files.size();
     model.bufs.reserve(n_max_backend_buffer);
 
-    for (auto & it : ctx_map) { 
+    for (auto & it : ctx_map) {
         ggml_backend_buffer_type_t buft = it.first;
         ggml_context * ctx              = it.second;
 
@@ -17107,8 +17107,8 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
     //
     GGML_ASSERT((qs.n_attention_wv == 0 || qs.n_attention_wv == (int)model.hparams.n_layer) && "n_attention_wv is unexpected");
 
-    size_t n_bytes_org = 0;
-    size_t n_bytes_new = 0;
+    size_t total_size_org = 0;
+    size_t total_size_new = 0;
 
     std::vector<std::thread> workers;
     workers.reserve(nthread);
@@ -17337,8 +17337,8 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
             }
             LLAMA_LOG_INFO("size = %8.2f MiB -> %8.2f MiB\n", ggml_nbytes(tensor)/1024.0/1024.0, new_size/1024.0/1024.0);
         }
-        n_bytes_org += ggml_nbytes(tensor);
-        n_bytes_new += new_size;
+        total_size_org += ggml_nbytes(tensor);
+        total_size_new += new_size;
 
         // update the gguf meta data as we go
         gguf_set_tensor_type(ctx_outs[cur_split], name.c_str(), new_type);
@@ -17353,8 +17353,8 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
         gguf_free(c);
     }
 
-    LLAMA_LOG_INFO("%s: model size  = %8.2f MB\n", __func__, n_bytes_org/1024.0/1024.0);
-    LLAMA_LOG_INFO("%s: quant size  = %8.2f MB\n", __func__, n_bytes_new/1024.0/1024.0);
+    LLAMA_LOG_INFO("%s: model size  = %8.2f MB\n", __func__, total_size_org/1024.0/1024.0);
+    LLAMA_LOG_INFO("%s: quant size  = %8.2f MB\n", __func__, total_size_new/1024.0/1024.0);
 
     if (qs.n_fallback > 0) {
         LLAMA_LOG_WARN("%s: WARNING: %d of %d tensor(s) required fallback quantization\n",
@@ -18702,7 +18702,7 @@ size_t llama_state_get_size(const struct llama_context * ctx) {
     const size_t s_kv_size         = sizeof(uint32_t);
     const size_t s_kv_used         = sizeof(uint32_t);
     const size_t s_v_trans         = sizeof(uint32_t);
-    const size_t s_kv              = ctx->kv_self.n_bytes();
+    const size_t s_kv              = ctx->kv_self.total_size();
     const size_t s_kv_cell         = sizeof(llama_pos) + sizeof(size_t) + cparams.n_seq_max*sizeof(llama_seq_id);
     const size_t s_kv_cells        = ctx->kv_self.size * s_kv_cell;
 
@@ -18870,7 +18870,7 @@ static void llama_state_get_data_internal(struct llama_context * ctx, llama_data
         // NOTE: kv_size and kv_buf_size are mostly used for sanity checks
         const uint32_t kv_head     = llama_kv_cache_cell_max(kv_self);
         const uint32_t kv_size     = kv_self.size;
-        const size_t   kv_buf_size = kv_self.n_bytes() / (kv_size ? kv_size : 1) * kv_head;
+        const size_t   kv_buf_size = kv_self.total_size() / (kv_size ? kv_size : 1) * kv_head;
         const uint32_t kv_used     = kv_self.used;
         const uint32_t v_trans     = kv_self.v_trans ? 1 : 0;
 
@@ -19047,7 +19047,7 @@ size_t llama_state_set_data(struct llama_context * ctx, const uint8_t * src) {
         if (kv_buf_size) {
             const size_t pre_kv_buf_size = inp - src;
 
-            GGML_ASSERT(kv_self.n_bytes() >= kv_buf_size);
+            GGML_ASSERT(kv_self.total_size() >= kv_buf_size);
 
             for (int il = 0; il < (int) n_layer; ++il) {
                 const size_t k_size = ggml_row_size(kv_self.k_l[il]->type, n_embd_k_gqa*kv_head);

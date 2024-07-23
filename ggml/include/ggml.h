@@ -605,7 +605,7 @@ extern "C" {
 
         struct ggml_backend_buffer * buffer;
 
-        int64_t ne[GGML_MAX_DIMS]; // number of elements, [batch size, heads, seq len, hidden dim]
+        int64_t ne[GGML_MAX_DIMS]; // number of elements
         size_t  nb[GGML_MAX_DIMS]; // stride in bytes:
                                    // nb[0] = ggml_type_size(type)
                                    // nb[1] = nb[0]   * (ne[0] / ggml_blck_size(type)) + padding
@@ -636,7 +636,7 @@ extern "C" {
         uint64_t off;
         uint64_t need_prefetch;
 #endif
-        //char padding[8];
+        // char padding[4];
     };
 
     static const size_t GGML_TENSOR_SIZE = sizeof(struct ggml_tensor);

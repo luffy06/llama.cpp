@@ -919,7 +919,7 @@ static bool ggml_gallocr_needs_realloc(ggml_gallocr_t galloc, struct ggml_cgraph
 #ifndef NDEBUG
                 fprintf(stderr, "%s: src %d (%s) of node %s is not valid\n", __func__, j, src->name, node->name);
 #endif
-                
+                return true;
             }
         }
     }
@@ -1042,7 +1042,7 @@ static bool alloc_tensor_range(struct ggml_context * ctx,
                     t->buffer = buffer;
                 else
 #endif
-               ggml_tallocr_alloc(&tallocr, t);
+                ggml_tallocr_alloc(&tallocr, t);
             } else if (t->buffer == NULL) {
                 ggml_backend_view_init(t);
             }

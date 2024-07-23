@@ -374,6 +374,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         if (!params.prompt.empty() && params.prompt.back() == '\n') {
             params.prompt.pop_back();
         }
+        return true;
     }
     if (arg == "--in-file") {
         CHECK_ARG

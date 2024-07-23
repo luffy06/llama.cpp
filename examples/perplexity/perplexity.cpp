@@ -2027,6 +2027,8 @@ int main(int argc, char ** argv) {
     llama_model * model;
     llama_context * ctx;
 
+    // ensure there's at least enough seq_ids for HellaSwag
+    params.n_parallel = std::max(4, params.n_parallel);
     fprintf(stderr, "%s: start to init llama\n", __func__);
 
     // load the model and apply lora adapter, if any

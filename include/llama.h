@@ -278,9 +278,9 @@ extern "C" {
         const struct llama_model_kv_override * kv_overrides;
 
         // Keep the booleans together to avoid misalignment during copy-by-value.
-        bool vocab_only; // only load the vocabulary, no weights
-        bool use_mmap;   // use mmap if possible
-        bool use_mlock;  // force system to keep model in RAM
+        bool vocab_only;    // only load the vocabulary, no weights
+        bool use_mmap;      // use mmap if possible
+        bool use_mlock;     // force system to keep model in RAM
         bool check_tensors; // validate model tensor data
 #ifdef PREFETCH
         int32_t thread_num;
