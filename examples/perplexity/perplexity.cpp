@@ -604,9 +604,9 @@ static results_perplexity perplexity(llama_context * ctx, const gpt_params & par
                 if (add_bos && j == 0) {
                     tokens[seq_start] = llama_token_bos(llama_get_model(ctx));
                 }
-                
+
                 fprintf(stderr, "%s: number of input tokens %d\n", __func__, batch_size);
-                
+
                 for (int k = 0; k < batch_size; ++k) {
                     const int idx = seq*n_ctx + k;
                     batch.token   [idx]    = tokens[seq_start + k];

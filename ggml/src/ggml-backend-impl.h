@@ -104,6 +104,7 @@ extern "C" {
 
         // compute graph without a plan (async)
         enum ggml_status (*GGML_CALL graph_compute)     (ggml_backend_t backend, struct ggml_cgraph * cgraph);
+
         // check if the backend can compute an operation
         bool (*GGML_CALL supports_op)(ggml_backend_t backend, const struct ggml_tensor * op);
 

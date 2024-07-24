@@ -98,6 +98,7 @@ struct ggml_tallocr ggml_tallocr_new(ggml_backend_buffer_t buffer) {
 void ggml_tallocr_alloc(struct ggml_tallocr * talloc, struct ggml_tensor * tensor) {
     size_t size = ggml_backend_buffer_get_alloc_size(talloc->buffer, tensor);
     size = GGML_PAD(size, talloc->alignment);
+
 #ifdef PREFETCH
     if (talloc->buffer_cache_size[0] != 0) {
         for (int i = 0; i < 10; i++) {
@@ -128,6 +129,7 @@ void ggml_tallocr_alloc(struct ggml_tallocr * talloc, struct ggml_tensor * tenso
     talloc->offset += size;
 
     assert(((uintptr_t)addr % talloc->alignment) == 0);
+
     ggml_backend_tensor_alloc(talloc->buffer, tensor, addr);
 }
 
@@ -914,7 +916,7 @@ static bool ggml_gallocr_needs_realloc(ggml_gallocr_t galloc, struct ggml_cgraph
             struct ggml_tensor * src = node->src[j];
             if (src == NULL) {
                 continue;
-            }     
+            }
             if (!ggml_gallocr_node_needs_realloc(galloc, src, &node_alloc->src[j])) {
 #ifndef NDEBUG
                 fprintf(stderr, "%s: src %d (%s) of node %s is not valid\n", __func__, j, src->name, node->name);
@@ -950,6 +952,7 @@ bool ggml_gallocr_alloc_graph(ggml_gallocr_t galloc, struct ggml_cgraph * graph)
             ggml_backend_buffer_reset(galloc->buffers[i]);
         }
     }
+
     // allocate the graph tensors from the previous assignments
     // leafs
     for (int i = 0; i < graph->n_leafs; i++) {
@@ -1013,6 +1016,7 @@ static bool alloc_tensor_range(struct ggml_context * ctx,
         free(*buffers);
         return false;
     }
+
 #ifdef PREFETCH
     struct ggml_tallocr tallocr;
     if (global_alloc == NULL) { 
@@ -1033,6 +1037,7 @@ static bool alloc_tensor_range(struct ggml_context * ctx,
         tallocr = ggml_tallocr_new(buffer);
 #else
     struct ggml_tallocr tallocr = ggml_tallocr_new(buffer);
+
 #endif
     for (struct ggml_tensor * t = first; t != last; t = ggml_get_next_tensor(ctx, t)) {
         if (t->data == NULL) {

@@ -40,6 +40,7 @@ uint16_t prefetch_status = 0;
 uint16_t forward_status = 0;
 uint16_t free_status = 0;
 extern ggml_tallocr_t global_alloc;
+uint32_t thread_num;
 #endif
 
 #ifdef GGML_USE_OPENMP
@@ -18768,8 +18769,9 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         }
 #endif
         struct ggml_tensor * node = cgraph->nodes[node_n];
+
 #ifdef PREFETCH
-        if (prefetch_no_mmap <= 1 && cgraph->n_nodes > 1000) {
+        if (prefetch_no_mmap <= 1 && cgraph->n_nodes > 1000 && thread_num != 0) {
             int layer = ggml_get_layer_index(node, 0);
 #ifdef DEBUG
             printf("forward node = %s layer = %d prefetch_status = %d forward_status = %d %p\n", node->name, layer, prefetch_status, forward_status, pthread_self());fflush(stdout);
@@ -18799,6 +18801,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
 #endif
 #endif
         ggml_compute_forward(&params, node);
+
         if (state->ith == 0 && cplan->abort_callback && cplan->abort_callback(cplan->abort_callback_data)) {
             state->shared->ec = GGML_STATUS_ABORTED;
         }
@@ -18819,6 +18822,7 @@ enum ggml_status ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cpl
     GGML_ASSERT(cplan->work_size == 0 || cplan->work_data != NULL);
 
     int n_threads = cplan->n_threads;
+
 #ifdef PREFETCH
     atomic_store_prefetch(&free_status, 0);
 #endif
@@ -18833,6 +18837,7 @@ enum ggml_status ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cpl
         /*.current_chunk           =*/ 0,
         /*.ec                      =*/ GGML_STATUS_SUCCESS,
     };
+
 #ifdef GGML_USE_OPENMP
     if (n_threads > 1) {
         #pragma omp parallel num_threads(n_threads)

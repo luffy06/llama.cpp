@@ -3563,7 +3563,7 @@ struct prefetch_weights_args {
 };
 void load_weights(int thread_index, size_t num_tensors, struct ggml_tensor** weights);
 void load_weights(int thread_index, size_t num_tensors, struct ggml_tensor** weights) {
-    size_t local_layer_index = 0;
+    int local_layer_index = 0;
     while (true) {
         for (size_t i = 0; i < num_tensors; i++) {
             if (weights[i] == NULL || i % thread_num != (size_t)thread_index) continue;
@@ -4214,6 +4214,7 @@ struct llama_model_loader {
             }
         }
 #endif
+
 #ifdef PREFETCH
         size_t size_locked = 0;
 #endif
@@ -4223,6 +4224,7 @@ struct llama_model_loader {
                 // this can happen with split experts models
                 continue;
             }
+
 #ifdef PREFETCH
             cur->need_prefetch = 1;
             int layer_index = ggml_get_layer_index(cur, 1);
@@ -4321,6 +4323,7 @@ struct llama_model_loader {
                     }
                 }
             }
+
             size_done += n_size;
         }
 
@@ -7280,6 +7283,7 @@ static bool llm_load_tensors(
     }
 
     ml.done_getting_tensors();
+
     ml.init_mappings(true, use_mlock ? &model.mlock_mmaps : nullptr);
     model.mappings.reserve(ml.mappings.size());
 
@@ -7369,6 +7373,7 @@ static bool llm_load_tensors(
             // this is used by ggml_backend_sched to improve op scheduling -> ops that use a weight are preferably scheduled to the backend that contains the weight
             ggml_backend_buffer_set_usage(buf.second, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
         }
+
         ctx_bufs.emplace_back(ctx, bufs);
     }
 
@@ -13428,6 +13433,7 @@ static void llama_graph_compute(
 static int llama_decode_internal(
          llama_context & lctx,
            llama_batch   batch_all) { // TODO: rename back to batch
+
     const uint32_t n_tokens_all = batch_all.n_tokens;
 
     if (n_tokens_all == 0) {
@@ -17894,7 +17900,11 @@ struct llama_context * llama_new_context_with_model(
     cparams.flash_attn       = params.flash_attn;
     cparams.pooling_type     = params.pooling_type;
 
+#ifdef PREFETCH
+    cparams.n_ctx            = params.n_ctx           == 0    ? CTX_SIZE                      : params.n_ctx;
+#else
     cparams.n_ctx            = params.n_ctx           == 0    ? hparams.n_ctx_train           : params.n_ctx;
+#endif
     cparams.rope_freq_base   = params.rope_freq_base  == 0.0f ? hparams.rope_freq_base_train  : params.rope_freq_base;
     cparams.rope_freq_scale  = params.rope_freq_scale == 0.0f ? hparams.rope_freq_scale_train : params.rope_freq_scale;
 

@@ -277,6 +277,7 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
 
 bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_params & params, int & i, bool & invalid_param) {
     const char split_delim = ',';
+
     llama_sampling_params & sparams = params.sparams;
 
     if (arg == "-s" || arg == "--seed") {
@@ -2107,7 +2108,7 @@ struct llama_model_params llama_model_params_from_gpt_params(const gpt_params & 
 #ifdef PREFETCH
     mparams.thread_num      = params.n_threads_prefetch;
     mparams.available_mem   = params.available_mem;
-    mparams.ctx_size        = params.n_ctx;
+    mparams.ctx_size        = params.n_ctx == 0 ? CTX_SIZE : params.n_ctx;
 #endif
     if (params.kv_overrides.empty()) {
         mparams.kv_overrides = NULL;

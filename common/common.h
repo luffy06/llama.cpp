@@ -61,7 +61,11 @@ enum dimre_method {
 struct gpt_params {
     uint32_t seed                 = LLAMA_DEFAULT_SEED; // RNG seed
 
+#ifdef PREFETCH
+    int32_t n_threads             = cpu_get_num_math() / 2;
+#else
     int32_t n_threads             = cpu_get_num_math();
+#endif
     int32_t n_threads_draft       =    -1;
     int32_t n_threads_batch       =    -1; // number of threads to use for batch processing (-1 = use n_threads)
     int32_t n_threads_batch_draft =    -1;
@@ -170,12 +174,12 @@ struct gpt_params {
     bool input_prefix_bos  = false; // prefix BOS to user inputs, preceding input_prefix
     bool ignore_eos        = false; // ignore generated EOS tokens
     bool logits_all        = false; // return logits for all tokens in the batch
-    bool use_mmap          = true;  // use mmap for faster loads
-    bool use_mlock         = false; // use mlock to keep model in memory
 #ifdef PREFETCH
-    size_t n_threads_prefetch = THREAD_NUM;
+    size_t n_threads_prefetch = cpu_get_num_math() / 2;
     float available_mem    = AVAIL_MEM;   
 #endif
+    bool use_mmap          = true;  // use mmap for faster loads
+    bool use_mlock         = false; // use mlock to keep model in memory
     bool verbose_prompt    = false; // print prompt tokens before generation
     bool display_prompt    = true;  // print prompt before generation
     bool infill            = false; // use infill mode

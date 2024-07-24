@@ -31,6 +31,7 @@ int main(int argc, char ** argv) {
         gpt_params_print_usage(argc, argv, params);
         return 1;
     }
+
 #ifdef PREFETCH
     params.use_mmap = 0;
 #endif
@@ -69,6 +70,7 @@ int main(int argc, char ** argv) {
 
     // load the target model
     std::tie(model_tgt, ctx_tgt) = llama_init_from_gpt_params(params);
+
 #ifdef PREFETCH
     params.use_mmap = 1;
 #endif
@@ -171,6 +173,7 @@ int main(int argc, char ** argv) {
     int n_predict = 0;
     int n_drafted = 0;
     int n_accept  = 0;
+
 #ifdef PREFETCH
     int n_drafts  = 0;
 #endif
