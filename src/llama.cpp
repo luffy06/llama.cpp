@@ -4353,10 +4353,11 @@ struct llama_model_loader {
         size_t memory_need = n_bytes;
         printf("\nmemory_need = %lfGB kv_cache_size = %lfMB available = %lfGB size_locked = %lfMB max_layer_index = %d\n", memory_need / 1024.0 / 1024 / 1024, kv_cache_size / 1024.0 / 1024, avail_mem / 1024.0 / 1024 / 1024, size_locked / 1024.0 / 1024, max_layer_index);
         size_t size_prefetch = 0;
-        while (memory_need > avail_mem - size_locked) {
+        GGML_ASSERT(avail_mem > size_locked);
+        while (memory_need > avail_mem && tensor_size.empty() == false) {
             memory_need -= tensor_size.back() * (max_layer_index + 1 - 3);
             printf("next tensor size = %lu memory_need = %lu\n", tensor_size.back(), memory_need);
-            size_per_layer -= tensor_size.back();
+            size_per_layer -= tensor_size.back(); 
             size_prefetch += tensor_size.back() * 3;
             tensor_size.pop_back();
         }
@@ -7476,7 +7477,8 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
         }
 #endif
 #ifdef PREFETCH
-        thread_num = params.thread_num;
+        if (thread_num == 0)
+            thread_num = params.thread_num;
         kv_cache_size = params.ctx_size * 2 * (model.hparams.n_embd_k_gqa() + model.hparams.n_embd_k_s() + model.hparams.n_embd_v_gqa() + model.hparams.n_embd_v_s()) * model.hparams.n_layer;
         avail_mem = (size_t)((double)1.0 * params.available_mem * 1024 * 1024 * 1024) - kv_cache_size;
         if (prefetch_no_mmap == 0) {
