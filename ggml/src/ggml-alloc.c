@@ -22,6 +22,7 @@ size_t avail_mem;
 size_t kv_cache_size;
 ggml_tallocr_t global_alloc;
 uint16_t alloc_lock = 0;
+extern int prefetch_no_mmap;
 #endif
 
 static bool ggml_is_view(const struct ggml_tensor * t) {
@@ -1002,7 +1003,7 @@ static bool alloc_tensor_range(struct ggml_context * ctx,
         ggml_backend_buffer_type_t buft, size_t size,
         ggml_backend_buffer_t ** buffers, size_t * n_buffers) {
 #ifdef PREFETCH
-    if (global_alloc == NULL && avail_mem != 0)
+    if (prefetch_no_mmap && global_alloc == NULL && avail_mem != 0)
         size = avail_mem;
 #endif 
     ggml_backend_buffer_t buffer = ggml_backend_buft_alloc_buffer(buft, size);
@@ -1019,7 +1020,7 @@ static bool alloc_tensor_range(struct ggml_context * ctx,
 
 #ifdef PREFETCH
     struct ggml_tallocr tallocr;
-    if (global_alloc == NULL) { 
+    if (prefetch_no_mmap && global_alloc == NULL) { 
         void * base = ggml_backend_buffer_get_base(buffer);
         size_t align = ggml_backend_buffer_get_alignment(buffer);
 
