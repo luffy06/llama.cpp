@@ -67,7 +67,7 @@ class Model:
 
     def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, is_big_endian: bool, use_temp_file: bool, eager: bool,
                  model_name: str | None, split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False, small_first_shard: bool = False,
-                 align: int | None = None):
+                 align: int | None = None, sort: bool = False):
         if type(self) is Model:
             raise TypeError(f"{type(self).__name__!r} should not be directly instantiated")
         self.dir_model = dir_model
@@ -101,6 +101,7 @@ class Model:
         self.gguf_writer = gguf.GGUFWriter(path=None, arch=gguf.MODEL_ARCH_NAMES[self.model_arch], endianess=self.endianess, use_temp_file=self.use_temp_file,
                                            split_max_tensors=split_max_tensors, split_max_size=split_max_size, dry_run=dry_run, small_first_shard=small_first_shard,
                                            align=align)
+        self.sort = sort
 
     @classmethod
     def __init_subclass__(cls):
@@ -1105,7 +1106,10 @@ class FalconModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort:
+            return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        else:
+            return tensors
 
     def set_gguf_parameters(self):
         block_count = self.hparams.get("num_hidden_layers")
@@ -1358,7 +1362,10 @@ class LlamaModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort:
+            return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        else:
+            return tensors
 
     def set_vocab(self):
         try:
@@ -1886,7 +1893,10 @@ class Phi3MiniModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort:
+            return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        else:
+            return tensors
 
     def set_vocab(self):
         from sentencepiece import SentencePieceProcessor
@@ -2399,7 +2409,10 @@ class GemmaModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort:
+            return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        else:
+            return tensors
 
     def set_vocab(self):
         self._set_vocab_sentencepiece()
@@ -3261,7 +3274,10 @@ def parse_args() -> argparse.Namespace:
         "--align", type=int, default=4096, 
         help="alignment for GGUF file (default: 4096)"
     )
-
+    parser.add_argument(
+        "--sort", action="store_true",
+        help="whether to sort tensors",
+    )
     return parser.parse_args()
 
 
@@ -3341,7 +3357,7 @@ def main() -> None:
                                      args.no_lazy, args.model_name, split_max_tensors=args.split_max_tensors,
                                      split_max_size=split_str_to_n_bytes(args.split_max_size), dry_run=args.dry_run,
                                      small_first_shard=args.no_tensor_first_split,
-                                     align=args.align)
+                                     align=args.align, sort=args.sort)
 
         logger.info("Set model parameters")
         model_instance.set_gguf_parameters()
