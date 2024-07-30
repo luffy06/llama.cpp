@@ -39,8 +39,8 @@ int max_layer_index = 0;
 uint16_t prefetch_status = 0;
 uint16_t forward_status = 0;
 uint16_t free_status = 0;
+uint32_t thread_num = 0;
 extern ggml_tallocr_t global_alloc;
-uint32_t thread_num;
 #endif
 
 #ifdef GGML_USE_OPENMP

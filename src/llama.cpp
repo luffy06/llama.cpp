@@ -106,8 +106,8 @@ extern "C" {
     extern uint16_t prefetch_status;
     extern size_t avail_mem;
     extern size_t kv_cache_size;
+    extern uint32_t thread_num;
 }
-uint32_t thread_num = 0;
 uint16_t* thread_status = NULL;
 
 #endif
