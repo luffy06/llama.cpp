@@ -67,7 +67,7 @@ class Model:
 
     def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, is_big_endian: bool, use_temp_file: bool, eager: bool,
                  model_name: str | None, split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False, small_first_shard: bool = False,
-                 align: int | None = None):
+                 sort_tensors: bool = False, align: int | None = None):
         if type(self) is Model:
             raise TypeError(f"{type(self).__name__!r} should not be directly instantiated")
         self.dir_model = dir_model
@@ -96,6 +96,7 @@ class Model:
                 self.ftype = gguf.LlamaFileType.MOSTLY_BF16
         ftype_up: str = self.ftype.name.partition("_")[2].upper()
         ftype_lw: str = ftype_up.lower()
+        self.sort_tensors = sort_tensors
         # allow templating the file name with the output ftype, useful with the "auto" ftype
         self.fname_out = fname_out.parent / fname_out.name.format(ftype_lw, outtype=ftype_lw, ftype=ftype_lw, OUTTYPE=ftype_up, FTYPE=ftype_up)
         self.gguf_writer = gguf.GGUFWriter(path=None, arch=gguf.MODEL_ARCH_NAMES[self.model_arch], endianess=self.endianess, use_temp_file=self.use_temp_file,
@@ -1105,10 +1106,13 @@ class FalconModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort_tensors:
+            return sort_tensors(tensors, self.block_count)
+        else:
+            return tensors
 
     def set_gguf_parameters(self):
-        block_count = self.hparams.get("num_hidden_layers")
+        block_count = self.block_count
         if block_count is None:
             block_count = self.hparams["n_layer"]  # old name
 
@@ -1358,7 +1362,10 @@ class LlamaModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort_tensors:
+            return sort_tensors(tensors, self.block_count)
+        else:
+            return tensors
 
     def set_vocab(self):
         try:
@@ -1886,7 +1893,10 @@ class Phi3MiniModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort_tensors:
+            return sort_tensors(tensors, self.block_count)
+        else:
+            return tensors
 
     def set_vocab(self):
         from sentencepiece import SentencePieceProcessor
@@ -2399,7 +2409,10 @@ class GemmaModel(Model):
             return sorted_tensors
 
         tensors = [(name, data_torch) for name, data_torch in super().get_tensors() if not name.endswith((".attention.masked_bias", ".attention.bias", ".rotary_emb.inv_freq"))]
-        return sort_tensors(tensors, self.hparams.get("num_hidden_layers"))
+        if self.sort_tensors:
+            return sort_tensors(tensors, self.block_count)
+        else:
+            return tensors
 
     def set_vocab(self):
         self._set_vocab_sentencepiece()
@@ -3258,6 +3271,10 @@ def parse_args() -> argparse.Namespace:
         help="do not add tensors to the first split (disabled by default)"
     )
     parser.add_argument(
+        "--sort-tensors", action="store_true",
+        help="sort tensors by size before splitting"
+    )
+    parser.add_argument(
         "--align", type=int, default=4096, 
         help="alignment for GGUF file (default: 4096)"
     )
@@ -3324,7 +3341,10 @@ def main() -> None:
         fname_out = args.outfile
     else:
         # output in the same directory as the model by default
-        fname_out = dir_model / 'ggml-model-{ftype}.gguf'
+        if args.sort_tensors:
+            fname_out = dir_model / 'ggml-model-{ftype}-sort.gguf'
+        else:
+            fname_out = dir_model / 'ggml-model-{ftype}.gguf'
 
     logger.info(f"Loading model: {dir_model.name}")
 
@@ -3340,7 +3360,7 @@ def main() -> None:
         model_instance = model_class(dir_model, ftype_map[args.outtype], fname_out, args.bigendian, args.use_temp_file,
                                      args.no_lazy, args.model_name, split_max_tensors=args.split_max_tensors,
                                      split_max_size=split_str_to_n_bytes(args.split_max_size), dry_run=args.dry_run,
-                                     small_first_shard=args.no_tensor_first_split,
+                                     small_first_shard=args.no_tensor_first_split, sort_tensors=args.sort_tensors,
                                      align=args.align)
 
         logger.info("Set model parameters")
